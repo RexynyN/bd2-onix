@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gerenciamento de Biblioteca</title>
+    <link href="style.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container flex items-center justify-between py-16">
+            <h1 class="navbar-brand">📚 Onix Biblioteca</h1>
+            <div class="navbar-nav flex gap-16">
+                <a href="#" onclick="showView('dashboard')" class="nav-link">Dashboard</a>
+                <a href="#" onclick="showView('biblioteca')" class="nav-link">Gestão da Biblioteca</a>
+                <a href="#" onclick="showView('emprestimos')" class="nav-link">Empréstimos</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container py-16">
+        <!-- Dashboard View -->
+        <div id="dashboard-view" class="view active">
+            <div class="view-header mb-32">
+                <h1>Dashboard</h1>
+                <p class="text-secondary">Visão geral do sistema de biblioteca</p>
+            </div>
+
+            <div class="stats-grid">
+                <div class="card">
+                    <div class="card__body">
+                        <h3>Usuários Cadastrados</h3>
+                        <div class="stat-number" id="total-usuarios">0</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card__body">
+                        <h3>Mídias Disponíveis</h3>
+                        <div class="stat-number" id="total-midias">0</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card__body">
+                        <h3>Empréstimos Ativos</h3>
+                        <div class="stat-number" id="emprestimos-ativos">0</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card__body">
+                        <h3>Bibliotecas</h3>
+                        <div class="stat-number" id="total-bibliotecas">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-charts mt-32">
+                <div class="card">
+                    <div class="card__body">
+                        <h3>Empréstimos por Tipo de Mídia</h3>
+                        <div class="chart-container">
+                            <canvas id="mediaTypeChart" width="400" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Biblioteca Management View -->
+        <div id="biblioteca-view" class="view">
+            <div class="view-header mb-32 flex justify-between items-center">
+                <div>
+                    <h1>Gestão da Biblioteca</h1>
+                    <p class="text-secondary">Gerenciar usuários, bibliotecas, mídias e autores</p>
+                </div>
+                <div class="management-tabs flex gap-8">
+                    <button class="btn btn--secondary tab-btn active" onclick="showManagementTab('usuarios')">Usuários</button>
+                    <button class="btn btn--secondary tab-btn" onclick="showManagementTab('bibliotecas')">Bibliotecas</button>
+                    <button class="btn btn--secondary tab-btn" onclick="showManagementTab('midias')">Mídias</button>
+                    <button class="btn btn--secondary tab-btn" onclick="showManagementTab('autores')">Autores</button>
+                </div>
+            </div>
+
+            <!-- Usuários Tab -->
+            <div id="usuarios-tab" class="management-tab active">
+                <div class="tab-header flex justify-between items-center mb-16">
+                    <h2>Usuários</h2>
+                    <button class="btn btn--primary" onclick="showModal('usuario-modal')">Adicionar Usuário</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="usuarios-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nome</th>
+                                <th>Email</th>
+                                <th>Telefone</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Bibliotecas Tab -->
+            <div id="bibliotecas-tab" class="management-tab">
+                <div class="tab-header flex justify-between items-center mb-16">
+                    <h2>Bibliotecas</h2>
+                    <button class="btn btn--primary" onclick="showModal('biblioteca-modal')">Adicionar Biblioteca</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="bibliotecas-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nome</th>
+                                <th>Endereço</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Mídias Tab -->
+            <div id="midias-tab" class="management-tab">
+                <div class="tab-header flex justify-between items-center mb-16">
+                    <h2>Mídias</h2>
+                    <button class="btn btn--primary" onclick="showModal('midia-modal')">Adicionar Mídia</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="midias-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Tipo</th>
+                                <th>Título</th>
+                                <th>Condição</th>
+                                <th>Biblioteca</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Autores Tab -->
+            <div id="autores-tab" class="management-tab">
+                <div class="tab-header flex justify-between items-center mb-16">
+                    <h2>Autores</h2>
+                    <button class="btn btn--primary" onclick="showModal('autor-modal')">Adicionar Autor</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="autores-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nome</th>
+                                <th>Data de Nascimento</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Empréstimos View -->
+        <div id="emprestimos-view" class="view">
+            <div class="view-header mb-32 flex justify-between items-center">
+                <div>
+                    <h1>Gerenciamento de Empréstimos</h1>
+                    <p class="text-secondary">Realizar empréstimos, devoluções e gerenciar penalizações</p>
+                </div>
+                <button class="btn btn--primary" onclick="showModal('emprestimo-modal')">Novo Empréstimo</button>
+            </div>
+
+            <div class="emprestimos-filter mb-16">
+                <div class="flex gap-16">
+                    <select class="form-control" id="emprestimo-filter" onchange="filterEmprestimos()">
+                        <option value="todos">Todos os Empréstimos</option>
+                        <option value="ativos">Empréstimos Ativos</option>
+                        <option value="atrasados">Empréstimos Atrasados</option>
+                        <option value="devolvidos">Empréstimos Devolvidos</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table class="data-table" id="emprestimos-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Usuário</th>
+                            <th>Mídia</th>
+                            <th>Data Empréstimo</th>
+                            <th>Data Prevista</th>
+                            <th>Data Devolução</th>
+                            <th>Status</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modals -->
+    <!-- Usuario Modal -->
+    <div id="usuario-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="usuario-modal-title">Adicionar Usuário</h3>
+                <button class="btn-close" onclick="closeModal('usuario-modal')">&times;</button>
+            </div>
+            <form id="usuario-form" onsubmit="saveUsuario(event)">
+                <div class="modal-body">
+                    <input type="hidden" id="usuario-id">
+                    <div class="form-group">
+                        <label class="form-label">Nome *</label>
+                        <input type="text" class="form-control" id="usuario-nome" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" id="usuario-email">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Endereço</label>
+                        <input type="text" class="form-control" id="usuario-endereco">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Telefone</label>
+                        <input type="text" class="form-control" id="usuario-telefone">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn--secondary" onclick="closeModal('usuario-modal')">Cancelar</button>
+                    <button type="submit" class="btn btn--primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Biblioteca Modal -->
+    <div id="biblioteca-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="biblioteca-modal-title">Adicionar Biblioteca</h3>
+                <button class="btn-close" onclick="closeModal('biblioteca-modal')">&times;</button>
+            </div>
+            <form id="biblioteca-form" onsubmit="saveBiblioteca(event)">
+                <div class="modal-body">
+                    <input type="hidden" id="biblioteca-id">
+                    <div class="form-group">
+                        <label class="form-label">Nome *</label>
+                        <input type="text" class="form-control" id="biblioteca-nome" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Endereço</label>
+                        <input type="text" class="form-control" id="biblioteca-endereco">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn--secondary" onclick="closeModal('biblioteca-modal')">Cancelar</button>
+                    <button type="submit" class="btn btn--primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Mídia Modal -->
+    <div id="midia-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="midia-modal-title">Adicionar Mídia</h3>
+                <button class="btn-close" onclick="closeModal('midia-modal')">&times;</button>
+            </div>
+            <form id="midia-form" onsubmit="saveMidia(event)">
+                <div class="modal-body">
+                    <input type="hidden" id="midia-id">
+                    <div class="form-group">
+                        <label class="form-label">Tipo de Mídia *</label>
+                        <select class="form-control" id="midia-tipo" required onchange="updateMidiaFields()">
+                            <option value="">Selecione o tipo</option>
+                            <option value="livro">Livro</option>
+                            <option value="revista">Revista</option>
+                            <option value="dvd">DVD</option>
+                            <option value="artigo">Artigo</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Título *</label>
+                        <input type="text" class="form-control" id="midia-titulo" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Condição</label>
+                        <select class="form-control" id="midia-condicao">
+                            <option value="excelente">Excelente</option>
+                            <option value="boa">Boa</option>
+                            <option value="regular">Regular</option>
+                            <option value="danificada">Danificada</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Biblioteca</label>
+                        <select class="form-control" id="midia-biblioteca"></select>
+                    </div>
+                    
+                    <!-- Dynamic fields based on media type -->
+                    <div id="dynamic-fields"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn--secondary" onclick="closeModal('midia-modal')">Cancelar</button>
+                    <button type="submit" class="btn btn--primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Autor Modal -->
+    <div id="autor-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="autor-modal-title">Adicionar Autor</h3>
+                <button class="btn-close" onclick="closeModal('autor-modal')">&times;</button>
+            </div>
+            <form id="autor-form" onsubmit="saveAutor(event)">
+                <div class="modal-body">
+                    <input type="hidden" id="autor-id">
+                    <div class="form-group">
+                        <label class="form-label">Nome *</label>
+                        <input type="text" class="form-control" id="autor-nome" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Data de Nascimento</label>
+                        <input type="date" class="form-control" id="autor-nascimento">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Data de Falecimento</label>
+                        <input type="date" class="form-control" id="autor-falecimento">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn--secondary" onclick="closeModal('autor-modal')">Cancelar</button>
+                    <button type="submit" class="btn btn--primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Empréstimo Modal -->
+    <div id="emprestimo-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="emprestimo-modal-title">Novo Empréstimo</h3>
+                <button class="btn-close" onclick="closeModal('emprestimo-modal')">&times;</button>
+            </div>
+            <form id="emprestimo-form" onsubmit="saveEmprestimo(event)">
+                <div class="modal-body">
+                    <input type="hidden" id="emprestimo-id">
+                    <div class="form-group">
+                        <label class="form-label">Usuário *</label>
+                        <select class="form-control" id="emprestimo-usuario" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Mídia *</label>
+                        <select class="form-control" id="emprestimo-midia" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Data do Empréstimo *</label>
+                        <input type="date" class="form-control" id="emprestimo-data" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Data de Devolução Prevista *</label>
+                        <input type="date" class="form-control" id="emprestimo-data-prevista" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn--secondary" onclick="closeModal('emprestimo-modal')">Cancelar</button>
+                    <button type="submit" class="btn btn--primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Alert Messages -->
+    <div id="alert-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,4533 @@
+Arquivo,Tipo,Conteúdo
+main.go,go,"package main
+
+import (
+	""fmt""
+	""log""
+	""os""
+
+	""github.com/gofiber/fiber/v2""
+	""github.com/gofiber/fiber/v2/middleware/cors""
+	""github.com/gofiber/fiber/v2/middleware/logger""
+	""github.com/gofiber/fiber/v2/middleware/recover""
+
+	""biblioteca-api/config""
+	""biblioteca-api/database""
+	""biblioteca-api/routes""
+)
+
+func main() {
+	// Carrega configurações
+	cfg := config.LoadConfig()
+
+	// Conecta ao banco de dados
+	db, err := database.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal(""Falha ao conectar com o banco de dados:"", err)
+	}
+	defer db.Close()
+
+	// Testa a conexão
+	if err := db.Ping(); err != nil {
+		log.Fatal(""Falha ao fazer ping no banco de dados:"", err)
+	}
+
+	// Cria uma nova instância do Fiber
+	app := fiber.New(fiber.Config{
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			code := fiber.StatusInternalServerError
+			message := ""Internal Server Error""
+
+			if e, ok := err.(*fiber.Error); ok {
+				code = e.Code
+				message = e.Message
+			}
+
+			return c.Status(code).JSON(fiber.Map{
+				""error"":   true,
+				""message"": message,
+			})
+		},
+	})
+
+	// Middleware
+	app.Use(logger.New())
+	app.Use(recover.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     ""http://localhost:3000, http://localhost:8080"",
+		AllowMethods:     ""GET,POST,HEAD,PUT,DELETE,PATCH"",
+		AllowHeaders:     ""Origin, Content-Type, Accept, Authorization"",
+		AllowCredentials: true,
+	}))
+
+	// Configura rotas
+	routes.SetupRoutes(app, db)
+
+	// Health check
+	app.Get(""/health"", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			""status"": ""ok"",
+			""message"": ""API Biblioteca funcionando!"",
+		})
+	})
+
+	// Inicia o servidor
+	port := os.Getenv(""PORT"")
+	if port == """" {
+		port = ""3000""
+	}
+
+	fmt.Printf(""🚀 Servidor rodando na porta %s\n"", port)
+	log.Fatal(app.Listen("":"" + port))
+}
+"
+config/config.go,go,"package config
+
+import (
+	""os""
+)
+
+type Config struct {
+	DatabaseURL string
+	Port        string
+	Environment string
+}
+
+func LoadConfig() *Config {
+	return &Config{
+		DatabaseURL: getEnv(""DATABASE_URL"", ""host=localhost port=5432 user=postgres password=postgres dbname=biblioteca sslmode=disable""),
+		Port:        getEnv(""PORT"", ""3000""),
+		Environment: getEnv(""ENVIRONMENT"", ""development""),
+	}
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != """" {
+		return value
+	}
+	return defaultValue
+}
+"
+database/database.go,go,"package database
+
+import (
+	""database/sql""
+	""fmt""
+
+	_ ""github.com/lib/pq""
+)
+
+// Connect conecta ao PostgreSQL usando database/sql
+func Connect(databaseURL string) (*sql.DB, error) {
+	db, err := sql.Open(""postgres"", databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf(""erro ao abrir conexão com banco: %w"", err)
+	}
+
+	// Testa a conexão
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf(""erro ao conectar com banco: %w"", err)
+	}
+
+	// Configura pool de conexões
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+
+	return db, nil
+}
+
+// InitSchema inicializa o schema do banco de dados
+func InitSchema(db *sql.DB) error {
+	schema := `
+	-- Criar tipos ENUM se não existir
+	DO $$ BEGIN
+		CREATE TYPE MidiaTipo AS ENUM ('livro', 'revista', 'dvd', 'artigo');
+	EXCEPTION
+		WHEN duplicate_object THEN null;
+	END $$;
+
+	-- Tabela: Usuario
+	CREATE TABLE IF NOT EXISTS Usuario (
+		id_usuario SERIAL PRIMARY KEY NOT NULL,
+		nome VARCHAR NOT NULL,
+		email VARCHAR,
+		endereco VARCHAR,
+		telefone VARCHAR,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- Tabela: Biblioteca
+	CREATE TABLE IF NOT EXISTS Biblioteca (
+		id_biblioteca SERIAL PRIMARY KEY NOT NULL,
+		nome VARCHAR NOT NULL,
+		endereco VARCHAR,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- Tabela: Mídia
+	CREATE TABLE IF NOT EXISTS Midia (
+		id_midia SERIAL PRIMARY KEY NOT NULL,
+		tipo_midia MidiaTipo NOT NULL,
+		condicao VARCHAR,
+		id_biblioteca INT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (id_biblioteca) REFERENCES Biblioteca(id_biblioteca)
+	);
+
+	-- Tabela: Emprestimo
+	CREATE TABLE IF NOT EXISTS Emprestimo (
+		id_emprestimo SERIAL PRIMARY KEY NOT NULL,
+		data_emprestimo DATE NOT NULL,
+		data_devolucao_prevista DATE,
+		data_devolucao DATE,
+		id_midia INT NOT NULL,
+		id_usuario INT NOT NULL,
+		status VARCHAR DEFAULT 'ativo',
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (id_midia) REFERENCES Midia(id_midia),
+		FOREIGN KEY (id_usuario) REFERENCES Usuario(id_usuario)
+	);
+
+	-- Tabela: Penalizacao
+	CREATE TABLE IF NOT EXISTS Penalizacao (
+		id_penalizacao SERIAL PRIMARY KEY NOT NULL,
+		descricao TEXT,
+		final_penalizacao DATE,
+		valor DECIMAL(10,2),
+		id_usuario INT,
+		id_emprestimo INT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (id_usuario) REFERENCES Usuario(id_usuario),
+		FOREIGN KEY (id_emprestimo) REFERENCES Emprestimo(id_emprestimo)
+	);
+
+	-- Tabela: Livros
+	CREATE TABLE IF NOT EXISTS Livros (
+		id_livro SERIAL PRIMARY KEY NOT NULL,
+		titulo VARCHAR NOT NULL,
+		ISBN VARCHAR,
+		numero_paginas INT,
+		editora VARCHAR,
+		data_publicacao DATE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (id_livro) REFERENCES Midia(id_midia)
+	);
+
+	-- Tabela: Revistas
+	CREATE TABLE IF NOT EXISTS Revistas (
+		id_revista SERIAL PRIMARY KEY NOT NULL,
+		titulo VARCHAR NOT NULL,
+		ISSN VARCHAR,
+		periodicidade VARCHAR,
+		editora VARCHAR,
+		data_publicacao DATE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (id_revista) REFERENCES Midia(id_midia)
+	);
+
+	-- Tabela: DVDs
+	CREATE TABLE IF NOT EXISTS DVDs (
+		id_dvd SERIAL PRIMARY KEY NOT NULL,
+		titulo VARCHAR NOT NULL,
+		ISAN VARCHAR,
+		duracao INT,
+		distribuidora VARCHAR,
+		data_lancamento DATE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (id_dvd) REFERENCES Midia(id_midia)
+	);
+
+	-- Tabela: Artigos
+	CREATE TABLE IF NOT EXISTS Artigos (
+		id_artigo SERIAL PRIMARY KEY NOT NULL,
+		titulo VARCHAR NOT NULL,
+		DOI VARCHAR,
+		publicadora VARCHAR,
+		data_publicacao DATE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (id_artigo) REFERENCES Midia(id_midia)
+	);
+
+	-- Tabela: Autores
+	CREATE TABLE IF NOT EXISTS Autores (
+		id_autor SERIAL PRIMARY KEY NOT NULL,
+		nome VARCHAR NOT NULL,
+		data_nascimento DATE,
+		data_falecimento DATE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- Tabela: Autorias
+	CREATE TABLE IF NOT EXISTS Autorias (
+		id_autorias SERIAL PRIMARY KEY NOT NULL,
+		id_autor INT NOT NULL,
+		id_midia INT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (id_autor) REFERENCES Autores(id_autor),
+		FOREIGN KEY (id_midia) REFERENCES Midia(id_midia)
+	);
+
+	-- Criar índices para melhor performance
+	CREATE INDEX IF NOT EXISTS idx_emprestimo_usuario ON Emprestimo(id_usuario);
+	CREATE INDEX IF NOT EXISTS idx_emprestimo_midia ON Emprestimo(id_midia);
+	CREATE INDEX IF NOT EXISTS idx_midia_biblioteca ON Midia(id_biblioteca);
+	CREATE INDEX IF NOT EXISTS idx_autorias_autor ON Autorias(id_autor);
+	CREATE INDEX IF NOT EXISTS idx_autorias_midia ON Autorias(id_midia);
+	`
+
+	_, err := db.Exec(schema)
+	return err
+}
+"
+models/models.go,go,"package models
+
+import (
+	""database/sql/driver""
+	""fmt""
+	""time""
+)
+
+// Tipo personalizado para MidiaTipo
+type MidiaTipo string
+
+const (
+	Livro   MidiaTipo = ""livro""
+	Revista MidiaTipo = ""revista""
+	DVD     MidiaTipo = ""dvd""
+	Artigo  MidiaTipo = ""artigo""
+)
+
+func (mt *MidiaTipo) Scan(value interface{}) error {
+	if value == nil {
+		*mt = """"
+		return nil
+	}
+	switch s := value.(type) {
+	case string:
+		*mt = MidiaTipo(s)
+	case []byte:
+		*mt = MidiaTipo(s)
+	default:
+		return fmt.Errorf(""cannot scan %T into MidiaTipo"", value)
+	}
+	return nil
+}
+
+func (mt MidiaTipo) Value() (driver.Value, error) {
+	return string(mt), nil
+}
+
+// Usuario representa a tabela Usuario
+type Usuario struct {
+	ID        int       `json:""id_usuario"" db:""id_usuario""`
+	Nome      string    `json:""nome"" db:""nome""`
+	Email     *string   `json:""email"" db:""email""`
+	Endereco  *string   `json:""endereco"" db:""endereco""`
+	Telefone  *string   `json:""telefone"" db:""telefone""`
+	CreatedAt time.Time `json:""created_at"" db:""created_at""`
+	UpdatedAt time.Time `json:""updated_at"" db:""updated_at""`
+}
+
+// Biblioteca representa a tabela Biblioteca
+type Biblioteca struct {
+	ID        int       `json:""id_biblioteca"" db:""id_biblioteca""`
+	Nome      string    `json:""nome"" db:""nome""`
+	Endereco  *string   `json:""endereco"" db:""endereco""`
+	CreatedAt time.Time `json:""created_at"" db:""created_at""`
+	UpdatedAt time.Time `json:""updated_at"" db:""updated_at""`
+}
+
+// Midia representa a tabela Midia
+type Midia struct {
+	ID            int        `json:""id_midia"" db:""id_midia""`
+	TipoMidia     MidiaTipo  `json:""tipo_midia"" db:""tipo_midia""`
+	Condicao      *string    `json:""condicao"" db:""condicao""`
+	IDBiblioteca  *int       `json:""id_biblioteca"" db:""id_biblioteca""`
+	CreatedAt     time.Time  `json:""created_at"" db:""created_at""`
+	UpdatedAt     time.Time  `json:""updated_at"" db:""updated_at""`
+}
+
+// Emprestimo representa a tabela Emprestimo
+type Emprestimo struct {
+	ID                     int        `json:""id_emprestimo"" db:""id_emprestimo""`
+	DataEmprestimo         time.Time  `json:""data_emprestimo"" db:""data_emprestimo""`
+	DataDevolucaoPrevista  *time.Time `json:""data_devolucao_prevista"" db:""data_devolucao_prevista""`
+	DataDevolucao          *time.Time `json:""data_devolucao"" db:""data_devolucao""`
+	IDMidia                int        `json:""id_midia"" db:""id_midia""`
+	IDUsuario              int        `json:""id_usuario"" db:""id_usuario""`
+	Status                 string     `json:""status"" db:""status""`
+	CreatedAt              time.Time  `json:""created_at"" db:""created_at""`
+	UpdatedAt              time.Time  `json:""updated_at"" db:""updated_at""`
+}
+
+// Penalizacao representa a tabela Penalizacao
+type Penalizacao struct {
+	ID               int       `json:""id_penalizacao"" db:""id_penalizacao""`
+	Descricao        *string   `json:""descricao"" db:""descricao""`
+	FinalPenalizacao *time.Time `json:""final_penalizacao"" db:""final_penalizacao""`
+	Valor            *float64  `json:""valor"" db:""valor""`
+	IDUsuario        *int      `json:""id_usuario"" db:""id_usuario""`
+	IDEmprestimo     *int      `json:""id_emprestimo"" db:""id_emprestimo""`
+	CreatedAt        time.Time `json:""created_at"" db:""created_at""`
+	UpdatedAt        time.Time `json:""updated_at"" db:""updated_at""`
+}
+
+// Livro representa a tabela Livros
+type Livro struct {
+	ID              int        `json:""id_livro"" db:""id_livro""`
+	Titulo          string     `json:""titulo"" db:""titulo""`
+	ISBN            *string    `json:""isbn"" db:""isbn""`
+	NumeroPaginas   *int       `json:""numero_paginas"" db:""numero_paginas""`
+	Editora         *string    `json:""editora"" db:""editora""`
+	DataPublicacao  *time.Time `json:""data_publicacao"" db:""data_publicacao""`
+	CreatedAt       time.Time  `json:""created_at"" db:""created_at""`
+	UpdatedAt       time.Time  `json:""updated_at"" db:""updated_at""`
+}
+
+// Revista representa a tabela Revistas
+type Revista struct {
+	ID              int        `json:""id_revista"" db:""id_revista""`
+	Titulo          string     `json:""titulo"" db:""titulo""`
+	ISSN            *string    `json:""issn"" db:""issn""`
+	Periodicidade   *string    `json:""periodicidade"" db:""periodicidade""`
+	Editora         *string    `json:""editora"" db:""editora""`
+	DataPublicacao  *time.Time `json:""data_publicacao"" db:""data_publicacao""`
+	CreatedAt       time.Time  `json:""created_at"" db:""created_at""`
+	UpdatedAt       time.Time  `json:""updated_at"" db:""updated_at""`
+}
+
+// DVD representa a tabela DVDs
+type DVD struct {
+	ID             int        `json:""id_dvd"" db:""id_dvd""`
+	Titulo         string     `json:""titulo"" db:""titulo""`
+	ISAN           *string    `json:""isan"" db:""isan""`
+	Duracao        *int       `json:""duracao"" db:""duracao""`
+	Distribuidora  *string    `json:""distribuidora"" db:""distribuidora""`
+	DataLancamento *time.Time `json:""data_lancamento"" db:""data_lancamento""`
+	CreatedAt      time.Time  `json:""created_at"" db:""created_at""`
+	UpdatedAt      time.Time  `json:""updated_at"" db:""updated_at""`
+}
+
+// Artigo representa a tabela Artigos
+type Artigo struct {
+	ID              int        `json:""id_artigo"" db:""id_artigo""`
+	Titulo          string     `json:""titulo"" db:""titulo""`
+	DOI             *string    `json:""doi"" db:""doi""`
+	Publicadora     *string    `json:""publicadora"" db:""publicadora""`
+	DataPublicacao  *time.Time `json:""data_publicacao"" db:""data_publicacao""`
+	CreatedAt       time.Time  `json:""created_at"" db:""created_at""`
+	UpdatedAt       time.Time  `json:""updated_at"" db:""updated_at""`
+}
+
+// Autor representa a tabela Autores
+type Autor struct {
+	ID               int        `json:""id_autor"" db:""id_autor""`
+	Nome             string     `json:""nome"" db:""nome""`
+	DataNascimento   *time.Time `json:""data_nascimento"" db:""data_nascimento""`
+	DataFalecimento  *time.Time `json:""data_falecimento"" db:""data_falecimento""`
+	CreatedAt        time.Time  `json:""created_at"" db:""created_at""`
+	UpdatedAt        time.Time  `json:""updated_at"" db:""updated_at""`
+}
+
+// Autoria representa a tabela Autorias
+type Autoria struct {
+	ID        int       `json:""id_autorias"" db:""id_autorias""`
+	IDAutor   int       `json:""id_autor"" db:""id_autor""`
+	IDMidia   int       `json:""id_midia"" db:""id_midia""`
+	CreatedAt time.Time `json:""created_at"" db:""created_at""`
+}
+
+// DTOs para requests
+type CreateUsuarioRequest struct {
+	Nome     string  `json:""nome"" validate:""required""`
+	Email    *string `json:""email""`
+	Endereco *string `json:""endereco""`
+	Telefone *string `json:""telefone""`
+}
+
+type UpdateUsuarioRequest struct {
+	Nome     *string `json:""nome""`
+	Email    *string `json:""email""`
+	Endereco *string `json:""endereco""`
+	Telefone *string `json:""telefone""`
+}
+
+type CreateBibliotecaRequest struct {
+	Nome     string  `json:""nome"" validate:""required""`
+	Endereco *string `json:""endereco""`
+}
+
+type CreateMidiaRequest struct {
+	TipoMidia    MidiaTipo `json:""tipo_midia"" validate:""required""`
+	Condicao     *string   `json:""condicao""`
+	IDBiblioteca *int      `json:""id_biblioteca""`
+}
+
+type CreateEmprestimoRequest struct {
+	DataEmprestimo        time.Time  `json:""data_emprestimo"" validate:""required""`
+	DataDevolucaoPrevista *time.Time `json:""data_devolucao_prevista""`
+	IDMidia               int        `json:""id_midia"" validate:""required""`
+	IDUsuario             int        `json:""id_usuario"" validate:""required""`
+}
+
+type CreateLivroRequest struct {
+	Titulo         string     `json:""titulo"" validate:""required""`
+	ISBN           *string    `json:""isbn""`
+	NumeroPaginas  *int       `json:""numero_paginas""`
+	Editora        *string    `json:""editora""`
+	DataPublicacao *time.Time `json:""data_publicacao""`
+	TipoMidia      MidiaTipo  `json:""tipo_midia"" validate:""required""`
+	Condicao       *string    `json:""condicao""`
+	IDBiblioteca   *int       `json:""id_biblioteca""`
+}
+
+// Response com dados expandidos
+type EmprestimoDetalhado struct {
+	Emprestimo
+	Usuario Usuario `json:""usuario""`
+	Midia   Midia   `json:""midia""`
+}
+
+type MidiaDetalhada struct {
+	Midia
+	Biblioteca *Biblioteca `json:""biblioteca,omitempty""`
+	Autores    []Autor     `json:""autores,omitempty""`
+	Livro      *Livro      `json:""livro,omitempty""`
+	Revista    *Revista    `json:""revista,omitempty""`
+	DVD        *DVD        `json:""dvd,omitempty""`
+	Artigo     *Artigo     `json:""artigo,omitempty""`
+}
+"
+handlers/usuario.go,go,"package handlers
+
+import (
+	""biblioteca-api/models""
+	""biblioteca-api/utils""
+	""database/sql""
+	""strconv""
+	""time""
+
+	""github.com/gofiber/fiber/v2""
+)
+
+type UsuarioHandler struct {
+	db *sql.DB
+}
+
+func NewUsuarioHandler(db *sql.DB) *UsuarioHandler {
+	return &UsuarioHandler{db: db}
+}
+
+// GetUsuarios obtém todos os usuários
+func (h *UsuarioHandler) GetUsuarios(c *fiber.Ctx) error {
+	page := c.QueryInt(""page"", 1)
+	limit := c.QueryInt(""limit"", 10)
+	offset := (page - 1) * limit
+
+	query := `
+		SELECT id_usuario, nome, email, endereco, telefone, created_at, updated_at 
+		FROM Usuario 
+		ORDER BY created_at DESC 
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := h.db.Query(query, limit, offset)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar usuários"", err)
+	}
+	defer rows.Close()
+
+	var usuarios []models.Usuario
+	for rows.Next() {
+		var usuario models.Usuario
+		err := rows.Scan(
+			&usuario.ID,
+			&usuario.Nome,
+			&usuario.Email,
+			&usuario.Endereco,
+			&usuario.Telefone,
+			&usuario.CreatedAt,
+			&usuario.UpdatedAt,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+		usuarios = append(usuarios, usuario)
+	}
+
+	// Contagem total
+	var total int
+	err = h.db.QueryRow(""SELECT COUNT(*) FROM Usuario"").Scan(&total)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao contar usuários"", err)
+	}
+
+	return c.JSON(utils.PaginatedResponse(usuarios, page, limit, total))
+}
+
+// GetUsuario obtém um usuário por ID
+func (h *UsuarioHandler) GetUsuario(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	query := `
+		SELECT id_usuario, nome, email, endereco, telefone, created_at, updated_at 
+		FROM Usuario 
+		WHERE id_usuario = $1
+	`
+
+	var usuario models.Usuario
+	err = h.db.QueryRow(query, id).Scan(
+		&usuario.ID,
+		&usuario.Nome,
+		&usuario.Email,
+		&usuario.Endereco,
+		&usuario.Telefone,
+		&usuario.CreatedAt,
+		&usuario.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Usuário não encontrado"", err)
+	}
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar usuário"", err)
+	}
+
+	return c.JSON(utils.SuccessResponse(usuario))
+}
+
+// CreateUsuario cria um novo usuário
+func (h *UsuarioHandler) CreateUsuario(c *fiber.Ctx) error {
+	var req models.CreateUsuarioRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Validação falhou"", err)
+	}
+
+	query := `
+		INSERT INTO Usuario (nome, email, endereco, telefone, created_at, updated_at) 
+		VALUES ($1, $2, $3, $4, $5, $6) 
+		RETURNING id_usuario, created_at, updated_at
+	`
+
+	var usuario models.Usuario
+	now := time.Now()
+	err := h.db.QueryRow(query, req.Nome, req.Email, req.Endereco, req.Telefone, now, now).Scan(
+		&usuario.ID,
+		&usuario.CreatedAt,
+		&usuario.UpdatedAt,
+	)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao criar usuário"", err)
+	}
+
+	usuario.Nome = req.Nome
+	usuario.Email = req.Email
+	usuario.Endereco = req.Endereco
+	usuario.Telefone = req.Telefone
+
+	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(usuario))
+}
+
+// UpdateUsuario atualiza um usuário
+func (h *UsuarioHandler) UpdateUsuario(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	var req models.UpdateUsuarioRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	// Constrói query dinamicamente baseada nos campos fornecidos
+	setParts := []string{}
+	args := []interface{}{}
+	argCount := 1
+
+	if req.Nome != nil {
+		setParts = append(setParts, ""nome = $""+strconv.Itoa(argCount))
+		args = append(args, *req.Nome)
+		argCount++
+	}
+	if req.Email != nil {
+		setParts = append(setParts, ""email = $""+strconv.Itoa(argCount))
+		args = append(args, *req.Email)
+		argCount++
+	}
+	if req.Endereco != nil {
+		setParts = append(setParts, ""endereco = $""+strconv.Itoa(argCount))
+		args = append(args, *req.Endereco)
+		argCount++
+	}
+	if req.Telefone != nil {
+		setParts = append(setParts, ""telefone = $""+strconv.Itoa(argCount))
+		args = append(args, *req.Telefone)
+		argCount++
+	}
+
+	if len(setParts) == 0 {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Nenhum campo para atualizar"", nil)
+	}
+
+	// Adiciona updated_at
+	setParts = append(setParts, ""updated_at = $""+strconv.Itoa(argCount))
+	args = append(args, time.Now())
+	argCount++
+
+	// Adiciona ID como último parâmetro
+	args = append(args, id)
+
+	query := ""UPDATE Usuario SET "" + joinStrings(setParts, "", "") + "" WHERE id_usuario = $"" + strconv.Itoa(argCount)
+
+	result, err := h.db.Exec(query, args...)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao atualizar usuário"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar atualização"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Usuário não encontrado"", nil)
+	}
+
+	// Busca o usuário atualizado
+	return h.GetUsuario(c)
+}
+
+// DeleteUsuario exclui um usuário
+func (h *UsuarioHandler) DeleteUsuario(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	// Verifica se o usuário tem empréstimos ativos
+	var emprestimosAtivos int
+	err = h.db.QueryRow(
+		""SELECT COUNT(*) FROM Emprestimo WHERE id_usuario = $1 AND data_devolucao IS NULL"",
+		id,
+	).Scan(&emprestimosAtivos)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar empréstimos"", err)
+	}
+
+	if emprestimosAtivos > 0 {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Usuário possui empréstimos ativos"", nil)
+	}
+
+	query := ""DELETE FROM Usuario WHERE id_usuario = $1""
+	result, err := h.db.Exec(query, id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao excluir usuário"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar exclusão"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Usuário não encontrado"", nil)
+	}
+
+	return c.JSON(utils.SuccessResponse(fiber.Map{""message"": ""Usuário excluído com sucesso""}))
+}
+
+// GetUsuarioEmprestimos obtém os empréstimos de um usuário
+func (h *UsuarioHandler) GetUsuarioEmprestimos(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	status := c.Query(""status"", """")
+
+	query := `
+		SELECT e.id_emprestimo, e.data_emprestimo, e.data_devolucao_prevista, 
+		       e.data_devolucao, e.id_midia, e.id_usuario, e.status, 
+		       e.created_at, e.updated_at
+		FROM Emprestimo e
+		WHERE e.id_usuario = $1
+	`
+
+	args := []interface{}{id}
+
+	if status != """" {
+		query += "" AND e.status = $2""
+		args = append(args, status)
+	}
+
+	query += "" ORDER BY e.created_at DESC""
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar empréstimos"", err)
+	}
+	defer rows.Close()
+
+	var emprestimos []models.Emprestimo
+	for rows.Next() {
+		var emp models.Emprestimo
+		err := rows.Scan(
+			&emp.ID,
+			&emp.DataEmprestimo,
+			&emp.DataDevolucaoPrevista,
+			&emp.DataDevolucao,
+			&emp.IDMidia,
+			&emp.IDUsuario,
+			&emp.Status,
+			&emp.CreatedAt,
+			&emp.UpdatedAt,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+		emprestimos = append(emprestimos, emp)
+	}
+
+	return c.JSON(utils.SuccessResponse(emprestimos))
+}
+
+// Helper function para join de strings
+func joinStrings(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return """"
+	}
+	if len(strs) == 1 {
+		return strs[0]
+	}
+
+	result := strs[0]
+	for _, s := range strs[1:] {
+		result += sep + s
+	}
+	return result
+}
+"
+handlers/biblioteca.go,go,"package handlers
+
+import (
+	""biblioteca-api/models""
+	""biblioteca-api/utils""
+	""database/sql""
+	""strconv""
+	""time""
+
+	""github.com/gofiber/fiber/v2""
+)
+
+type BibliotecaHandler struct {
+	db *sql.DB
+}
+
+func NewBibliotecaHandler(db *sql.DB) *BibliotecaHandler {
+	return &BibliotecaHandler{db: db}
+}
+
+// GetBibliotecas obtém todas as bibliotecas
+func (h *BibliotecaHandler) GetBibliotecas(c *fiber.Ctx) error {
+	page := c.QueryInt(""page"", 1)
+	limit := c.QueryInt(""limit"", 10)
+	offset := (page - 1) * limit
+
+	query := `
+		SELECT id_biblioteca, nome, endereco, created_at, updated_at 
+		FROM Biblioteca 
+		ORDER BY nome 
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := h.db.Query(query, limit, offset)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar bibliotecas"", err)
+	}
+	defer rows.Close()
+
+	var bibliotecas []models.Biblioteca
+	for rows.Next() {
+		var biblioteca models.Biblioteca
+		err := rows.Scan(
+			&biblioteca.ID,
+			&biblioteca.Nome,
+			&biblioteca.Endereco,
+			&biblioteca.CreatedAt,
+			&biblioteca.UpdatedAt,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+		bibliotecas = append(bibliotecas, biblioteca)
+	}
+
+	// Contagem total
+	var total int
+	err = h.db.QueryRow(""SELECT COUNT(*) FROM Biblioteca"").Scan(&total)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao contar bibliotecas"", err)
+	}
+
+	return c.JSON(utils.PaginatedResponse(bibliotecas, page, limit, total))
+}
+
+// GetBiblioteca obtém uma biblioteca por ID
+func (h *BibliotecaHandler) GetBiblioteca(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	query := `
+		SELECT id_biblioteca, nome, endereco, created_at, updated_at 
+		FROM Biblioteca 
+		WHERE id_biblioteca = $1
+	`
+
+	var biblioteca models.Biblioteca
+	err = h.db.QueryRow(query, id).Scan(
+		&biblioteca.ID,
+		&biblioteca.Nome,
+		&biblioteca.Endereco,
+		&biblioteca.CreatedAt,
+		&biblioteca.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Biblioteca não encontrada"", err)
+	}
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar biblioteca"", err)
+	}
+
+	return c.JSON(utils.SuccessResponse(biblioteca))
+}
+
+// CreateBiblioteca cria uma nova biblioteca
+func (h *BibliotecaHandler) CreateBiblioteca(c *fiber.Ctx) error {
+	var req models.CreateBibliotecaRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Validação falhou"", err)
+	}
+
+	query := `
+		INSERT INTO Biblioteca (nome, endereco, created_at, updated_at) 
+		VALUES ($1, $2, $3, $4) 
+		RETURNING id_biblioteca, created_at, updated_at
+	`
+
+	var biblioteca models.Biblioteca
+	now := time.Now()
+	err := h.db.QueryRow(query, req.Nome, req.Endereco, now, now).Scan(
+		&biblioteca.ID,
+		&biblioteca.CreatedAt,
+		&biblioteca.UpdatedAt,
+	)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao criar biblioteca"", err)
+	}
+
+	biblioteca.Nome = req.Nome
+	biblioteca.Endereco = req.Endereco
+
+	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(biblioteca))
+}
+
+// UpdateBiblioteca atualiza uma biblioteca
+func (h *BibliotecaHandler) UpdateBiblioteca(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	var req models.CreateBibliotecaRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	query := `
+		UPDATE Biblioteca 
+		SET nome = $1, endereco = $2, updated_at = $3 
+		WHERE id_biblioteca = $4
+	`
+
+	result, err := h.db.Exec(query, req.Nome, req.Endereco, time.Now(), id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao atualizar biblioteca"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar atualização"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Biblioteca não encontrada"", nil)
+	}
+
+	// Busca a biblioteca atualizada
+	return h.GetBiblioteca(c)
+}
+
+// DeleteBiblioteca exclui uma biblioteca
+func (h *BibliotecaHandler) DeleteBiblioteca(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	// Verifica se há mídias associadas
+	var midiasCount int
+	err = h.db.QueryRow(""SELECT COUNT(*) FROM Midia WHERE id_biblioteca = $1"", id).Scan(&midiasCount)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar mídias"", err)
+	}
+
+	if midiasCount > 0 {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Biblioteca possui mídias associadas"", nil)
+	}
+
+	query := ""DELETE FROM Biblioteca WHERE id_biblioteca = $1""
+	result, err := h.db.Exec(query, id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao excluir biblioteca"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar exclusão"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Biblioteca não encontrada"", nil)
+	}
+
+	return c.JSON(utils.SuccessResponse(fiber.Map{""message"": ""Biblioteca excluída com sucesso""}))
+}
+
+// GetBibliotecaMidias obtém todas as mídias de uma biblioteca
+func (h *BibliotecaHandler) GetBibliotecaMidias(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	page := c.QueryInt(""page"", 1)
+	limit := c.QueryInt(""limit"", 10)
+	offset := (page - 1) * limit
+	tipoMidia := c.Query(""tipo"")
+
+	query := `
+		SELECT id_midia, tipo_midia, condicao, id_biblioteca, created_at, updated_at 
+		FROM Midia 
+		WHERE id_biblioteca = $1
+	`
+
+	args := []interface{}{id}
+	argCount := 2
+
+	if tipoMidia != """" {
+		query += "" AND tipo_midia = $"" + strconv.Itoa(argCount)
+		args = append(args, tipoMidia)
+		argCount++
+	}
+
+	query += "" ORDER BY created_at DESC LIMIT $"" + strconv.Itoa(argCount) + "" OFFSET $"" + strconv.Itoa(argCount+1)
+	args = append(args, limit, offset)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar mídias"", err)
+	}
+	defer rows.Close()
+
+	var midias []models.Midia
+	for rows.Next() {
+		var midia models.Midia
+		err := rows.Scan(
+			&midia.ID,
+			&midia.TipoMidia,
+			&midia.Condicao,
+			&midia.IDBiblioteca,
+			&midia.CreatedAt,
+			&midia.UpdatedAt,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+		midias = append(midias, midia)
+	}
+
+	// Contagem total
+	var total int
+	countQuery := ""SELECT COUNT(*) FROM Midia WHERE id_biblioteca = $1""
+	countArgs := []interface{}{id}
+
+	if tipoMidia != """" {
+		countQuery += "" AND tipo_midia = $2""
+		countArgs = append(countArgs, tipoMidia)
+	}
+
+	err = h.db.QueryRow(countQuery, countArgs...).Scan(&total)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao contar mídias"", err)
+	}
+
+	return c.JSON(utils.PaginatedResponse(midias, page, limit, total))
+}
+"
+handlers/midia.go,go,"package handlers
+
+import (
+	""biblioteca-api/models""
+	""biblioteca-api/utils""
+	""database/sql""
+	""strconv""
+	""time""
+
+	""github.com/gofiber/fiber/v2""
+)
+
+type MidiaHandler struct {
+	db *sql.DB
+}
+
+func NewMidiaHandler(db *sql.DB) *MidiaHandler {
+	return &MidiaHandler{db: db}
+}
+
+// GetMidias obtém todas as mídias
+func (h *MidiaHandler) GetMidias(c *fiber.Ctx) error {
+	page := c.QueryInt(""page"", 1)
+	limit := c.QueryInt(""limit"", 10)
+	offset := (page - 1) * limit
+	tipoMidia := c.Query(""tipo"")
+	biblioteca := c.Query(""biblioteca"")
+
+	query := `
+		SELECT m.id_midia, m.tipo_midia, m.condicao, m.id_biblioteca, 
+		       m.created_at, m.updated_at,
+		       b.nome as biblioteca_nome
+		FROM Midia m
+		LEFT JOIN Biblioteca b ON m.id_biblioteca = b.id_biblioteca
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 1
+
+	if tipoMidia != """" {
+		query += "" AND m.tipo_midia = $"" + strconv.Itoa(argCount)
+		args = append(args, tipoMidia)
+		argCount++
+	}
+
+	if biblioteca != """" {
+		bibliotecaID, err := strconv.Atoi(biblioteca)
+		if err == nil {
+			query += "" AND m.id_biblioteca = $"" + strconv.Itoa(argCount)
+			args = append(args, bibliotecaID)
+			argCount++
+		}
+	}
+
+	query += "" ORDER BY m.created_at DESC LIMIT $"" + strconv.Itoa(argCount) + "" OFFSET $"" + strconv.Itoa(argCount+1)
+	args = append(args, limit, offset)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar mídias"", err)
+	}
+	defer rows.Close()
+
+	var midias []models.MidiaDetalhada
+	for rows.Next() {
+		var midia models.MidiaDetalhada
+		var bibliotecaNome sql.NullString
+
+		err := rows.Scan(
+			&midia.ID,
+			&midia.TipoMidia,
+			&midia.Condicao,
+			&midia.IDBiblioteca,
+			&midia.CreatedAt,
+			&midia.UpdatedAt,
+			&bibliotecaNome,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+
+		if bibliotecaNome.Valid && midia.IDBiblioteca != nil {
+			midia.Biblioteca = &models.Biblioteca{
+				ID:   *midia.IDBiblioteca,
+				Nome: bibliotecaNome.String,
+			}
+		}
+
+		midias = append(midias, midia)
+	}
+
+	// Contagem total
+	var total int
+	countQuery := ""SELECT COUNT(*) FROM Midia WHERE 1=1""
+	countArgs := []interface{}{}
+	countArgIndex := 1
+
+	if tipoMidia != """" {
+		countQuery += "" AND tipo_midia = $"" + strconv.Itoa(countArgIndex)
+		countArgs = append(countArgs, tipoMidia)
+		countArgIndex++
+	}
+
+	if biblioteca != """" {
+		bibliotecaID, err := strconv.Atoi(biblioteca)
+		if err == nil {
+			countQuery += "" AND id_biblioteca = $"" + strconv.Itoa(countArgIndex)
+			countArgs = append(countArgs, bibliotecaID)
+		}
+	}
+
+	err = h.db.QueryRow(countQuery, countArgs...).Scan(&total)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao contar mídias"", err)
+	}
+
+	return c.JSON(utils.PaginatedResponse(midias, page, limit, total))
+}
+
+// GetMidia obtém uma mídia por ID com detalhes
+func (h *MidiaHandler) GetMidia(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	// Busca a mídia base
+	query := `
+		SELECT m.id_midia, m.tipo_midia, m.condicao, m.id_biblioteca, 
+		       m.created_at, m.updated_at,
+		       b.id_biblioteca, b.nome, b.endereco
+		FROM Midia m
+		LEFT JOIN Biblioteca b ON m.id_biblioteca = b.id_biblioteca
+		WHERE m.id_midia = $1
+	`
+
+	var midia models.MidiaDetalhada
+	var bibliotecaID sql.NullInt64
+	var bibliotecaNome, bibliotecaEndereco sql.NullString
+
+	err = h.db.QueryRow(query, id).Scan(
+		&midia.ID,
+		&midia.TipoMidia,
+		&midia.Condicao,
+		&midia.IDBiblioteca,
+		&midia.CreatedAt,
+		&midia.UpdatedAt,
+		&bibliotecaID,
+		&bibliotecaNome,
+		&bibliotecaEndereco,
+	)
+
+	if err == sql.ErrNoRows {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Mídia não encontrada"", err)
+	}
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar mídia"", err)
+	}
+
+	// Adiciona dados da biblioteca se existir
+	if bibliotecaID.Valid {
+		midia.Biblioteca = &models.Biblioteca{
+			ID:       int(bibliotecaID.Int64),
+			Nome:     bibliotecaNome.String,
+			Endereco: &bibliotecaEndereco.String,
+		}
+	}
+
+	// Busca detalhes específicos baseado no tipo
+	switch midia.TipoMidia {
+	case models.Livro:
+		livro, err := h.getLivroDetails(id)
+		if err == nil {
+			midia.Livro = livro
+		}
+	case models.Revista:
+		revista, err := h.getRevistaDetails(id)
+		if err == nil {
+			midia.Revista = revista
+		}
+	case models.DVD:
+		dvd, err := h.getDVDDetails(id)
+		if err == nil {
+			midia.DVD = dvd
+		}
+	case models.Artigo:
+		artigo, err := h.getArtigoDetails(id)
+		if err == nil {
+			midia.Artigo = artigo
+		}
+	}
+
+	// Busca autores
+	autores, err := h.getAutoresByMidia(id)
+	if err == nil {
+		midia.Autores = autores
+	}
+
+	return c.JSON(utils.SuccessResponse(midia))
+}
+
+// CreateMidia cria uma nova mídia
+func (h *MidiaHandler) CreateMidia(c *fiber.Ctx) error {
+	var req models.CreateMidiaRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Validação falhou"", err)
+	}
+
+	// Verifica se a biblioteca existe (se fornecida)
+	if req.IDBiblioteca != nil {
+		var existe bool
+		err := h.db.QueryRow(""SELECT EXISTS(SELECT 1 FROM Biblioteca WHERE id_biblioteca = $1)"", 
+			*req.IDBiblioteca).Scan(&existe)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar biblioteca"", err)
+		}
+		if !existe {
+			return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Biblioteca não encontrada"", nil)
+		}
+	}
+
+	query := `
+		INSERT INTO Midia (tipo_midia, condicao, id_biblioteca, created_at, updated_at) 
+		VALUES ($1, $2, $3, $4, $5) 
+		RETURNING id_midia, created_at, updated_at
+	`
+
+	var midia models.Midia
+	now := time.Now()
+	err := h.db.QueryRow(query, req.TipoMidia, req.Condicao, req.IDBiblioteca, now, now).Scan(
+		&midia.ID,
+		&midia.CreatedAt,
+		&midia.UpdatedAt,
+	)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao criar mídia"", err)
+	}
+
+	midia.TipoMidia = req.TipoMidia
+	midia.Condicao = req.Condicao
+	midia.IDBiblioteca = req.IDBiblioteca
+
+	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(midia))
+}
+
+// UpdateMidia atualiza uma mídia
+func (h *MidiaHandler) UpdateMidia(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	var req models.CreateMidiaRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	// Verifica se a biblioteca existe (se fornecida)
+	if req.IDBiblioteca != nil {
+		var existe bool
+		err := h.db.QueryRow(""SELECT EXISTS(SELECT 1 FROM Biblioteca WHERE id_biblioteca = $1)"", 
+			*req.IDBiblioteca).Scan(&existe)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar biblioteca"", err)
+		}
+		if !existe {
+			return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Biblioteca não encontrada"", nil)
+		}
+	}
+
+	query := `
+		UPDATE Midia 
+		SET condicao = $1, id_biblioteca = $2, updated_at = $3 
+		WHERE id_midia = $4
+	`
+
+	result, err := h.db.Exec(query, req.Condicao, req.IDBiblioteca, time.Now(), id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao atualizar mídia"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar atualização"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Mídia não encontrada"", nil)
+	}
+
+	// Busca a mídia atualizada
+	return h.GetMidia(c)
+}
+
+// DeleteMidia exclui uma mídia
+func (h *MidiaHandler) DeleteMidia(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	// Verifica se há empréstimos ativos
+	var emprestimosAtivos int
+	err = h.db.QueryRow(
+		""SELECT COUNT(*) FROM Emprestimo WHERE id_midia = $1 AND data_devolucao IS NULL"",
+		id,
+	).Scan(&emprestimosAtivos)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar empréstimos"", err)
+	}
+
+	if emprestimosAtivos > 0 {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Mídia possui empréstimos ativos"", nil)
+	}
+
+	// Inicia transação para deletar mídia e dados relacionados
+	tx, err := h.db.Begin()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao iniciar transação"", err)
+	}
+	defer tx.Rollback()
+
+	// Remove autorias
+	_, err = tx.Exec(""DELETE FROM Autorias WHERE id_midia = $1"", id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao remover autorias"", err)
+	}
+
+	// Remove detalhes específicos baseado no tipo
+	var tipoMidia models.MidiaTipo
+	err = tx.QueryRow(""SELECT tipo_midia FROM Midia WHERE id_midia = $1"", id).Scan(&tipoMidia)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar tipo da mídia"", err)
+	}
+
+	switch tipoMidia {
+	case models.Livro:
+		_, err = tx.Exec(""DELETE FROM Livros WHERE id_livro = $1"", id)
+	case models.Revista:
+		_, err = tx.Exec(""DELETE FROM Revistas WHERE id_revista = $1"", id)
+	case models.DVD:
+		_, err = tx.Exec(""DELETE FROM DVDs WHERE id_dvd = $1"", id)
+	case models.Artigo:
+		_, err = tx.Exec(""DELETE FROM Artigos WHERE id_artigo = $1"", id)
+	}
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao remover detalhes da mídia"", err)
+	}
+
+	// Remove a mídia
+	result, err := tx.Exec(""DELETE FROM Midia WHERE id_midia = $1"", id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao excluir mídia"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar exclusão"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Mídia não encontrada"", nil)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao confirmar transação"", err)
+	}
+
+	return c.JSON(utils.SuccessResponse(fiber.Map{""message"": ""Mídia excluída com sucesso""}))
+}
+
+// Métodos auxiliares para buscar detalhes específicos
+func (h *MidiaHandler) getLivroDetails(idMidia int) (*models.Livro, error) {
+	query := `
+		SELECT id_livro, titulo, isbn, numero_paginas, editora, data_publicacao, created_at, updated_at
+		FROM Livros WHERE id_livro = $1
+	`
+
+	var livro models.Livro
+	err := h.db.QueryRow(query, idMidia).Scan(
+		&livro.ID,
+		&livro.Titulo,
+		&livro.ISBN,
+		&livro.NumeroPaginas,
+		&livro.Editora,
+		&livro.DataPublicacao,
+		&livro.CreatedAt,
+		&livro.UpdatedAt,
+	)
+
+	return &livro, err
+}
+
+func (h *MidiaHandler) getRevistaDetails(idMidia int) (*models.Revista, error) {
+	query := `
+		SELECT id_revista, titulo, issn, periodicidade, editora, data_publicacao, created_at, updated_at
+		FROM Revistas WHERE id_revista = $1
+	`
+
+	var revista models.Revista
+	err := h.db.QueryRow(query, idMidia).Scan(
+		&revista.ID,
+		&revista.Titulo,
+		&revista.ISSN,
+		&revista.Periodicidade,
+		&revista.Editora,
+		&revista.DataPublicacao,
+		&revista.CreatedAt,
+		&revista.UpdatedAt,
+	)
+
+	return &revista, err
+}
+
+func (h *MidiaHandler) getDVDDetails(idMidia int) (*models.DVD, error) {
+	query := `
+		SELECT id_dvd, titulo, isan, duracao, distribuidora, data_lancamento, created_at, updated_at
+		FROM DVDs WHERE id_dvd = $1
+	`
+
+	var dvd models.DVD
+	err := h.db.QueryRow(query, idMidia).Scan(
+		&dvd.ID,
+		&dvd.Titulo,
+		&dvd.ISAN,
+		&dvd.Duracao,
+		&dvd.Distribuidora,
+		&dvd.DataLancamento,
+		&dvd.CreatedAt,
+		&dvd.UpdatedAt,
+	)
+
+	return &dvd, err
+}
+
+func (h *MidiaHandler) getArtigoDetails(idMidia int) (*models.Artigo, error) {
+	query := `
+		SELECT id_artigo, titulo, doi, publicadora, data_publicacao, created_at, updated_at
+		FROM Artigos WHERE id_artigo = $1
+	`
+
+	var artigo models.Artigo
+	err := h.db.QueryRow(query, idMidia).Scan(
+		&artigo.ID,
+		&artigo.Titulo,
+		&artigo.DOI,
+		&artigo.Publicadora,
+		&artigo.DataPublicacao,
+		&artigo.CreatedAt,
+		&artigo.UpdatedAt,
+	)
+
+	return &artigo, err
+}
+
+func (h *MidiaHandler) getAutoresByMidia(idMidia int) ([]models.Autor, error) {
+	query := `
+		SELECT a.id_autor, a.nome, a.data_nascimento, a.data_falecimento, a.created_at, a.updated_at
+		FROM Autores a
+		INNER JOIN Autorias au ON a.id_autor = au.id_autor
+		WHERE au.id_midia = $1
+		ORDER BY a.nome
+	`
+
+	rows, err := h.db.Query(query, idMidia)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var autores []models.Autor
+	for rows.Next() {
+		var autor models.Autor
+		err := rows.Scan(
+			&autor.ID,
+			&autor.Nome,
+			&autor.DataNascimento,
+			&autor.DataFalecimento,
+			&autor.CreatedAt,
+			&autor.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		autores = append(autores, autor)
+	}
+
+	return autores, nil
+}
+"
+handlers/emprestimo.go,go,"package handlers
+
+import (
+	""biblioteca-api/models""
+	""biblioteca-api/utils""
+	""database/sql""
+	""strconv""
+	""time""
+
+	""github.com/gofiber/fiber/v2""
+)
+
+type EmprestimoHandler struct {
+	db *sql.DB
+}
+
+func NewEmprestimoHandler(db *sql.DB) *EmprestimoHandler {
+	return &EmprestimoHandler{db: db}
+}
+
+// GetEmprestimos obtém todos os empréstimos
+func (h *EmprestimoHandler) GetEmprestimos(c *fiber.Ctx) error {
+	page := c.QueryInt(""page"", 1)
+	limit := c.QueryInt(""limit"", 10)
+	offset := (page - 1) * limit
+	status := c.Query(""status"")
+	usuario := c.Query(""usuario"")
+
+	query := `
+		SELECT e.id_emprestimo, e.data_emprestimo, e.data_devolucao_prevista, 
+		       e.data_devolucao, e.id_midia, e.id_usuario, e.status, 
+		       e.created_at, e.updated_at,
+		       u.nome as usuario_nome, u.email as usuario_email,
+		       m.tipo_midia, m.condicao
+		FROM Emprestimo e
+		INNER JOIN Usuario u ON e.id_usuario = u.id_usuario
+		INNER JOIN Midia m ON e.id_midia = m.id_midia
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 1
+
+	if status != """" {
+		query += "" AND e.status = $"" + strconv.Itoa(argCount)
+		args = append(args, status)
+		argCount++
+	}
+
+	if usuario != """" {
+		usuarioID, err := strconv.Atoi(usuario)
+		if err == nil {
+			query += "" AND e.id_usuario = $"" + strconv.Itoa(argCount)
+			args = append(args, usuarioID)
+			argCount++
+		}
+	}
+
+	query += "" ORDER BY e.created_at DESC LIMIT $"" + strconv.Itoa(argCount) + "" OFFSET $"" + strconv.Itoa(argCount+1)
+	args = append(args, limit, offset)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar empréstimos"", err)
+	}
+	defer rows.Close()
+
+	var emprestimos []models.EmprestimoDetalhado
+	for rows.Next() {
+		var emp models.EmprestimoDetalhado
+		var usuarioEmail sql.NullString
+
+		err := rows.Scan(
+			&emp.ID,
+			&emp.DataEmprestimo,
+			&emp.DataDevolucaoPrevista,
+			&emp.DataDevolucao,
+			&emp.IDMidia,
+			&emp.IDUsuario,
+			&emp.Status,
+			&emp.CreatedAt,
+			&emp.UpdatedAt,
+			&emp.Usuario.Nome,
+			&usuarioEmail,
+			&emp.Midia.TipoMidia,
+			&emp.Midia.Condicao,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+
+		emp.Usuario.ID = emp.IDUsuario
+		if usuarioEmail.Valid {
+			emp.Usuario.Email = &usuarioEmail.String
+		}
+		emp.Midia.ID = emp.IDMidia
+
+		emprestimos = append(emprestimos, emp)
+	}
+
+	// Contagem total
+	var total int
+	countQuery := ""SELECT COUNT(*) FROM Emprestimo WHERE 1=1""
+	countArgs := []interface{}{}
+	countArgIndex := 1
+
+	if status != """" {
+		countQuery += "" AND status = $"" + strconv.Itoa(countArgIndex)
+		countArgs = append(countArgs, status)
+		countArgIndex++
+	}
+
+	if usuario != """" {
+		usuarioID, err := strconv.Atoi(usuario)
+		if err == nil {
+			countQuery += "" AND id_usuario = $"" + strconv.Itoa(countArgIndex)
+			countArgs = append(countArgs, usuarioID)
+		}
+	}
+
+	err = h.db.QueryRow(countQuery, countArgs...).Scan(&total)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao contar empréstimos"", err)
+	}
+
+	return c.JSON(utils.PaginatedResponse(emprestimos, page, limit, total))
+}
+
+// GetEmprestimo obtém um empréstimo por ID
+func (h *EmprestimoHandler) GetEmprestimo(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	query := `
+		SELECT e.id_emprestimo, e.data_emprestimo, e.data_devolucao_prevista, 
+		       e.data_devolucao, e.id_midia, e.id_usuario, e.status, 
+		       e.created_at, e.updated_at,
+		       u.id_usuario, u.nome, u.email, u.endereco, u.telefone,
+		       m.id_midia, m.tipo_midia, m.condicao, m.id_biblioteca
+		FROM Emprestimo e
+		INNER JOIN Usuario u ON e.id_usuario = u.id_usuario
+		INNER JOIN Midia m ON e.id_midia = m.id_midia
+		WHERE e.id_emprestimo = $1
+	`
+
+	var emp models.EmprestimoDetalhado
+	err = h.db.QueryRow(query, id).Scan(
+		&emp.ID,
+		&emp.DataEmprestimo,
+		&emp.DataDevolucaoPrevista,
+		&emp.DataDevolucao,
+		&emp.IDMidia,
+		&emp.IDUsuario,
+		&emp.Status,
+		&emp.CreatedAt,
+		&emp.UpdatedAt,
+		&emp.Usuario.ID,
+		&emp.Usuario.Nome,
+		&emp.Usuario.Email,
+		&emp.Usuario.Endereco,
+		&emp.Usuario.Telefone,
+		&emp.Midia.ID,
+		&emp.Midia.TipoMidia,
+		&emp.Midia.Condicao,
+		&emp.Midia.IDBiblioteca,
+	)
+
+	if err == sql.ErrNoRows {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Empréstimo não encontrado"", err)
+	}
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar empréstimo"", err)
+	}
+
+	return c.JSON(utils.SuccessResponse(emp))
+}
+
+// CreateEmprestimo cria um novo empréstimo
+func (h *EmprestimoHandler) CreateEmprestimo(c *fiber.Ctx) error {
+	var req models.CreateEmprestimoRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Validação falhou"", err)
+	}
+
+	// Verifica se o usuário existe
+	var usuarioExiste bool
+	err := h.db.QueryRow(""SELECT EXISTS(SELECT 1 FROM Usuario WHERE id_usuario = $1)"", 
+		req.IDUsuario).Scan(&usuarioExiste)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar usuário"", err)
+	}
+	if !usuarioExiste {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Usuário não encontrado"", nil)
+	}
+
+	// Verifica se a mídia existe
+	var midiaExiste bool
+	err = h.db.QueryRow(""SELECT EXISTS(SELECT 1 FROM Midia WHERE id_midia = $1)"", 
+		req.IDMidia).Scan(&midiaExiste)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar mídia"", err)
+	}
+	if !midiaExiste {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Mídia não encontrada"", nil)
+	}
+
+	// Verifica se a mídia já está emprestada
+	var emprestimoAtivo bool
+	err = h.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM Emprestimo 
+		WHERE id_midia = $1 AND data_devolucao IS NULL AND status = 'ativo')`, 
+		req.IDMidia).Scan(&emprestimoAtivo)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar disponibilidade"", err)
+	}
+	if emprestimoAtivo {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Mídia já está emprestada"", nil)
+	}
+
+	// Verifica se o usuário tem penalidades ativas
+	var penalizacaoAtiva bool
+	err = h.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM Penalizacao 
+		WHERE id_usuario = $1 AND (final_penalizacao IS NULL OR final_penalizacao > CURRENT_DATE))`, 
+		req.IDUsuario).Scan(&penalizacaoAtiva)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar penalizações"", err)
+	}
+	if penalizacaoAtiva {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Usuário possui penalizações ativas"", nil)
+	}
+
+	// Define data de devolução prevista se não fornecida (15 dias por padrão)
+	if req.DataDevolucaoPrevista == nil {
+		dataPrevista := req.DataEmprestimo.AddDate(0, 0, 15)
+		req.DataDevolucaoPrevista = &dataPrevista
+	}
+
+	query := `
+		INSERT INTO Emprestimo (data_emprestimo, data_devolucao_prevista, id_midia, id_usuario, status, created_at, updated_at) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7) 
+		RETURNING id_emprestimo, created_at, updated_at
+	`
+
+	var emprestimo models.Emprestimo
+	now := time.Now()
+	err = h.db.QueryRow(query, 
+		req.DataEmprestimo, 
+		req.DataDevolucaoPrevista, 
+		req.IDMidia, 
+		req.IDUsuario, 
+		""ativo"", 
+		now, 
+		now).Scan(
+		&emprestimo.ID,
+		&emprestimo.CreatedAt,
+		&emprestimo.UpdatedAt,
+	)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao criar empréstimo"", err)
+	}
+
+	emprestimo.DataEmprestimo = req.DataEmprestimo
+	emprestimo.DataDevolucaoPrevista = req.DataDevolucaoPrevista
+	emprestimo.IDMidia = req.IDMidia
+	emprestimo.IDUsuario = req.IDUsuario
+	emprestimo.Status = ""ativo""
+
+	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(emprestimo))
+}
+
+// DevolverEmprestimo processa a devolução de um empréstimo
+func (h *EmprestimoHandler) DevolverEmprestimo(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	type DevolucaoRequest struct {
+		DataDevolucao time.Time `json:""data_devolucao""`
+		Condicao      *string   `json:""condicao""`
+	}
+
+	var req DevolucaoRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	// Inicia transação
+	tx, err := h.db.Begin()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao iniciar transação"", err)
+	}
+	defer tx.Rollback()
+
+	// Busca o empréstimo
+	var emprestimo models.Emprestimo
+	err = tx.QueryRow(`
+		SELECT id_emprestimo, data_emprestimo, data_devolucao_prevista, 
+		       data_devolucao, id_midia, id_usuario, status 
+		FROM Emprestimo WHERE id_emprestimo = $1`, id).Scan(
+		&emprestimo.ID,
+		&emprestimo.DataEmprestimo,
+		&emprestimo.DataDevolucaoPrevista,
+		&emprestimo.DataDevolucao,
+		&emprestimo.IDMidia,
+		&emprestimo.IDUsuario,
+		&emprestimo.Status,
+	)
+
+	if err == sql.ErrNoRows {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Empréstimo não encontrado"", err)
+	}
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar empréstimo"", err)
+	}
+
+	if emprestimo.Status != ""ativo"" {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Empréstimo não está ativo"", nil)
+	}
+
+	if emprestimo.DataDevolucao != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Empréstimo já foi devolvido"", nil)
+	}
+
+	// Atualiza o empréstimo
+	_, err = tx.Exec(`
+		UPDATE Emprestimo 
+		SET data_devolucao = $1, status = $2, updated_at = $3 
+		WHERE id_emprestimo = $4`,
+		req.DataDevolucao, ""devolvido"", time.Now(), id)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao atualizar empréstimo"", err)
+	}
+
+	// Atualiza condição da mídia se fornecida
+	if req.Condicao != nil {
+		_, err = tx.Exec(`
+			UPDATE Midia 
+			SET condicao = $1, updated_at = $2 
+			WHERE id_midia = $3`,
+			*req.Condicao, time.Now(), emprestimo.IDMidia)
+
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao atualizar mídia"", err)
+		}
+	}
+
+	// Verifica se há atraso e cria penalização se necessário
+	if emprestimo.DataDevolucaoPrevista != nil && req.DataDevolucao.After(*emprestimo.DataDevolucaoPrevista) {
+		diasAtraso := int(req.DataDevolucao.Sub(*emprestimo.DataDevolucaoPrevista).Hours() / 24)
+		valorMulta := float64(diasAtraso) * 1.50 // R$ 1,50 por dia de atraso
+
+		_, err = tx.Exec(`
+			INSERT INTO Penalizacao (descricao, final_penalizacao, valor, id_usuario, id_emprestimo, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			""Multa por atraso na devolução"",
+			req.DataDevolucao.AddDate(0, 0, 30), // 30 dias para pagar
+			valorMulta,
+			emprestimo.IDUsuario,
+			emprestimo.ID,
+			time.Now(),
+			time.Now())
+
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao criar penalização"", err)
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao confirmar transação"", err)
+	}
+
+	// Busca o empréstimo atualizado
+	return h.GetEmprestimo(c)
+}
+
+// RenovarEmprestimo renova um empréstimo ativo
+func (h *EmprestimoHandler) RenovarEmprestimo(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	type RenovacaoRequest struct {
+		NovaDataDevolucao time.Time `json:""nova_data_devolucao"" validate:""required""`
+	}
+
+	var req RenovacaoRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Validação falhou"", err)
+	}
+
+	// Verifica se o empréstimo existe e está ativo
+	var emprestimo models.Emprestimo
+	err = h.db.QueryRow(`
+		SELECT id_emprestimo, data_emprestimo, data_devolucao_prevista, 
+		       id_midia, id_usuario, status 
+		FROM Emprestimo WHERE id_emprestimo = $1`, id).Scan(
+		&emprestimo.ID,
+		&emprestimo.DataEmprestimo,
+		&emprestimo.DataDevolucaoPrevista,
+		&emprestimo.IDMidia,
+		&emprestimo.IDUsuario,
+		&emprestimo.Status,
+	)
+
+	if err == sql.ErrNoRows {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Empréstimo não encontrado"", err)
+	}
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar empréstimo"", err)
+	}
+
+	if emprestimo.Status != ""ativo"" {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Empréstimo não está ativo"", nil)
+	}
+
+	// Verifica se o usuário tem penalizações ativas
+	var penalizacaoAtiva bool
+	err = h.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM Penalizacao 
+		WHERE id_usuario = $1 AND (final_penalizacao IS NULL OR final_penalizacao > CURRENT_DATE))`, 
+		emprestimo.IDUsuario).Scan(&penalizacaoAtiva)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar penalizações"", err)
+	}
+	if penalizacaoAtiva {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Usuário possui penalizações ativas"", nil)
+	}
+
+	// Atualiza a data de devolução prevista
+	query := `
+		UPDATE Emprestimo 
+		SET data_devolucao_prevista = $1, updated_at = $2 
+		WHERE id_emprestimo = $3
+	`
+
+	_, err = h.db.Exec(query, req.NovaDataDevolucao, time.Now(), id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao renovar empréstimo"", err)
+	}
+
+	// Busca o empréstimo atualizado
+	return h.GetEmprestimo(c)
+}
+
+// GetEmprestimosAtrasados obtém empréstimos em atraso
+func (h *EmprestimoHandler) GetEmprestimosAtrasados(c *fiber.Ctx) error {
+	query := `
+		SELECT e.id_emprestimo, e.data_emprestimo, e.data_devolucao_prevista, 
+		       e.data_devolucao, e.id_midia, e.id_usuario, e.status, 
+		       e.created_at, e.updated_at,
+		       u.nome as usuario_nome, u.email as usuario_email, u.telefone,
+		       m.tipo_midia, m.condicao
+		FROM Emprestimo e
+		INNER JOIN Usuario u ON e.id_usuario = u.id_usuario
+		INNER JOIN Midia m ON e.id_midia = m.id_midia
+		WHERE e.status = 'ativo' 
+		  AND e.data_devolucao IS NULL 
+		  AND e.data_devolucao_prevista < CURRENT_DATE
+		ORDER BY e.data_devolucao_prevista ASC
+	`
+
+	rows, err := h.db.Query(query)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar empréstimos atrasados"", err)
+	}
+	defer rows.Close()
+
+	var emprestimos []models.EmprestimoDetalhado
+	for rows.Next() {
+		var emp models.EmprestimoDetalhado
+		var usuarioEmail, telefone sql.NullString
+
+		err := rows.Scan(
+			&emp.ID,
+			&emp.DataEmprestimo,
+			&emp.DataDevolucaoPrevista,
+			&emp.DataDevolucao,
+			&emp.IDMidia,
+			&emp.IDUsuario,
+			&emp.Status,
+			&emp.CreatedAt,
+			&emp.UpdatedAt,
+			&emp.Usuario.Nome,
+			&usuarioEmail,
+			&telefone,
+			&emp.Midia.TipoMidia,
+			&emp.Midia.Condicao,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+
+		emp.Usuario.ID = emp.IDUsuario
+		if usuarioEmail.Valid {
+			emp.Usuario.Email = &usuarioEmail.String
+		}
+		if telefone.Valid {
+			emp.Usuario.Telefone = &telefone.String
+		}
+		emp.Midia.ID = emp.IDMidia
+
+		emprestimos = append(emprestimos, emp)
+	}
+
+	return c.JSON(utils.SuccessResponse(emprestimos))
+}
+"
+handlers/livro.go,go,"package handlers
+
+import (
+	""biblioteca-api/models""
+	""biblioteca-api/utils""
+	""database/sql""
+	""strconv""
+	""time""
+
+	""github.com/gofiber/fiber/v2""
+)
+
+type LivroHandler struct {
+	db *sql.DB
+}
+
+func NewLivroHandler(db *sql.DB) *LivroHandler {
+	return &LivroHandler{db: db}
+}
+
+// GetLivros obtém todos os livros
+func (h *LivroHandler) GetLivros(c *fiber.Ctx) error {
+	page := c.QueryInt(""page"", 1)
+	limit := c.QueryInt(""limit"", 10)
+	offset := (page - 1) * limit
+	search := c.Query(""search"")
+	biblioteca := c.Query(""biblioteca"")
+
+	query := `
+		SELECT l.id_livro, l.titulo, l.isbn, l.numero_paginas, l.editora, l.data_publicacao,
+		       l.created_at, l.updated_at,
+		       m.condicao, m.id_biblioteca,
+		       b.nome as biblioteca_nome,
+		       CASE WHEN e.id_emprestimo IS NOT NULL THEN true ELSE false END as emprestado
+		FROM Livros l
+		INNER JOIN Midia m ON l.id_livro = m.id_midia
+		LEFT JOIN Biblioteca b ON m.id_biblioteca = b.id_biblioteca
+		LEFT JOIN Emprestimo e ON m.id_midia = e.id_midia AND e.data_devolucao IS NULL AND e.status = 'ativo'
+		WHERE m.tipo_midia = 'livro'
+	`
+
+	args := []interface{}{}
+	argCount := 1
+
+	if search != """" {
+		query += "" AND (LOWER(l.titulo) LIKE LOWER($"" + strconv.Itoa(argCount) + "") OR LOWER(l.isbn) LIKE LOWER($"" + strconv.Itoa(argCount) + ""))""
+		args = append(args, ""%""+search+""%"")
+		argCount++
+	}
+
+	if biblioteca != """" {
+		bibliotecaID, err := strconv.Atoi(biblioteca)
+		if err == nil {
+			query += "" AND m.id_biblioteca = $"" + strconv.Itoa(argCount)
+			args = append(args, bibliotecaID)
+			argCount++
+		}
+	}
+
+	query += "" ORDER BY l.titulo LIMIT $"" + strconv.Itoa(argCount) + "" OFFSET $"" + strconv.Itoa(argCount+1)
+	args = append(args, limit, offset)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar livros"", err)
+	}
+	defer rows.Close()
+
+	type LivroComDetalhes struct {
+		models.Livro
+		Condicao        *string `json:""condicao""`
+		IDBiblioteca    *int    `json:""id_biblioteca""`
+		BibliotecaNome  *string `json:""biblioteca_nome""`
+		Emprestado      bool    `json:""emprestado""`
+	}
+
+	var livros []LivroComDetalhes
+	for rows.Next() {
+		var livro LivroComDetalhes
+		var bibliotecaNome sql.NullString
+
+		err := rows.Scan(
+			&livro.ID,
+			&livro.Titulo,
+			&livro.ISBN,
+			&livro.NumeroPaginas,
+			&livro.Editora,
+			&livro.DataPublicacao,
+			&livro.CreatedAt,
+			&livro.UpdatedAt,
+			&livro.Condicao,
+			&livro.IDBiblioteca,
+			&bibliotecaNome,
+			&livro.Emprestado,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+
+		if bibliotecaNome.Valid {
+			livro.BibliotecaNome = &bibliotecaNome.String
+		}
+
+		livros = append(livros, livro)
+	}
+
+	// Contagem total
+	var total int
+	countQuery := `
+		SELECT COUNT(*) 
+		FROM Livros l
+		INNER JOIN Midia m ON l.id_livro = m.id_midia
+		WHERE m.tipo_midia = 'livro'
+	`
+	countArgs := []interface{}{}
+	countArgIndex := 1
+
+	if search != """" {
+		countQuery += "" AND (LOWER(l.titulo) LIKE LOWER($"" + strconv.Itoa(countArgIndex) + "") OR LOWER(l.isbn) LIKE LOWER($"" + strconv.Itoa(countArgIndex) + ""))""
+		countArgs = append(countArgs, ""%""+search+""%"")
+		countArgIndex++
+	}
+
+	if biblioteca != """" {
+		bibliotecaID, err := strconv.Atoi(biblioteca)
+		if err == nil {
+			countQuery += "" AND m.id_biblioteca = $"" + strconv.Itoa(countArgIndex)
+			countArgs = append(countArgs, bibliotecaID)
+		}
+	}
+
+	err = h.db.QueryRow(countQuery, countArgs...).Scan(&total)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao contar livros"", err)
+	}
+
+	return c.JSON(utils.PaginatedResponse(livros, page, limit, total))
+}
+
+// GetLivro obtém um livro por ID
+func (h *LivroHandler) GetLivro(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	query := `
+		SELECT l.id_livro, l.titulo, l.isbn, l.numero_paginas, l.editora, l.data_publicacao,
+		       l.created_at, l.updated_at,
+		       m.condicao, m.id_biblioteca,
+		       b.id_biblioteca, b.nome as biblioteca_nome, b.endereco as biblioteca_endereco,
+		       CASE WHEN e.id_emprestimo IS NOT NULL THEN true ELSE false END as emprestado
+		FROM Livros l
+		INNER JOIN Midia m ON l.id_livro = m.id_midia
+		LEFT JOIN Biblioteca b ON m.id_biblioteca = b.id_biblioteca
+		LEFT JOIN Emprestimo e ON m.id_midia = e.id_midia AND e.data_devolucao IS NULL AND e.status = 'ativo'
+		WHERE l.id_livro = $1
+	`
+
+	type LivroDetalhado struct {
+		models.Livro
+		Condicao       *string              `json:""condicao""`
+		IDBiblioteca   *int                 `json:""id_biblioteca""`
+		Biblioteca     *models.Biblioteca   `json:""biblioteca,omitempty""`
+		Emprestado     bool                 `json:""emprestado""`
+		Autores        []models.Autor       `json:""autores,omitempty""`
+	}
+
+	var livro LivroDetalhado
+	var bibliotecaID sql.NullInt64
+	var bibliotecaNome, bibliotecaEndereco sql.NullString
+
+	err = h.db.QueryRow(query, id).Scan(
+		&livro.ID,
+		&livro.Titulo,
+		&livro.ISBN,
+		&livro.NumeroPaginas,
+		&livro.Editora,
+		&livro.DataPublicacao,
+		&livro.CreatedAt,
+		&livro.UpdatedAt,
+		&livro.Condicao,
+		&livro.IDBiblioteca,
+		&bibliotecaID,
+		&bibliotecaNome,
+		&bibliotecaEndereco,
+		&livro.Emprestado,
+	)
+
+	if err == sql.ErrNoRows {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Livro não encontrado"", err)
+	}
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar livro"", err)
+	}
+
+	// Adiciona dados da biblioteca se existir
+	if bibliotecaID.Valid {
+		livro.Biblioteca = &models.Biblioteca{
+			ID:       int(bibliotecaID.Int64),
+			Nome:     bibliotecaNome.String,
+			Endereco: &bibliotecaEndereco.String,
+		}
+	}
+
+	// Busca autores do livro
+	autoresQuery := `
+		SELECT a.id_autor, a.nome, a.data_nascimento, a.data_falecimento, a.created_at, a.updated_at
+		FROM Autores a
+		INNER JOIN Autorias au ON a.id_autor = au.id_autor
+		WHERE au.id_midia = $1
+		ORDER BY a.nome
+	`
+
+	rows, err := h.db.Query(autoresQuery, id)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var autor models.Autor
+			err := rows.Scan(
+				&autor.ID,
+				&autor.Nome,
+				&autor.DataNascimento,
+				&autor.DataFalecimento,
+				&autor.CreatedAt,
+				&autor.UpdatedAt,
+			)
+			if err == nil {
+				livro.Autores = append(livro.Autores, autor)
+			}
+		}
+	}
+
+	return c.JSON(utils.SuccessResponse(livro))
+}
+
+// CreateLivro cria um novo livro
+func (h *LivroHandler) CreateLivro(c *fiber.Ctx) error {
+	var req models.CreateLivroRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Validação falhou"", err)
+	}
+
+	// Verifica se a biblioteca existe (se fornecida)
+	if req.IDBiblioteca != nil {
+		var existe bool
+		err := h.db.QueryRow(""SELECT EXISTS(SELECT 1 FROM Biblioteca WHERE id_biblioteca = $1)"", 
+			*req.IDBiblioteca).Scan(&existe)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar biblioteca"", err)
+		}
+		if !existe {
+			return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Biblioteca não encontrada"", nil)
+		}
+	}
+
+	// Inicia transação
+	tx, err := h.db.Begin()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao iniciar transação"", err)
+	}
+	defer tx.Rollback()
+
+	// Insere a mídia primeiro
+	var midiaID int
+	now := time.Now()
+	err = tx.QueryRow(`
+		INSERT INTO Midia (tipo_midia, condicao, id_biblioteca, created_at, updated_at) 
+		VALUES ($1, $2, $3, $4, $5) 
+		RETURNING id_midia`,
+		models.Livro, req.Condicao, req.IDBiblioteca, now, now).Scan(&midiaID)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao criar mídia"", err)
+	}
+
+	// Insere o livro
+	var livro models.Livro
+	err = tx.QueryRow(`
+		INSERT INTO Livros (id_livro, titulo, isbn, numero_paginas, editora, data_publicacao, created_at, updated_at) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+		RETURNING id_livro, created_at, updated_at`,
+		midiaID, req.Titulo, req.ISBN, req.NumeroPaginas, req.Editora, req.DataPublicacao, now, now).Scan(
+		&livro.ID,
+		&livro.CreatedAt,
+		&livro.UpdatedAt,
+	)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao criar livro"", err)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao confirmar transação"", err)
+	}
+
+	livro.Titulo = req.Titulo
+	livro.ISBN = req.ISBN
+	livro.NumeroPaginas = req.NumeroPaginas
+	livro.Editora = req.Editora
+	livro.DataPublicacao = req.DataPublicacao
+
+	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(livro))
+}
+
+// UpdateLivro atualiza um livro
+func (h *LivroHandler) UpdateLivro(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	var req models.CreateLivroRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	// Verifica se a biblioteca existe (se fornecida)
+	if req.IDBiblioteca != nil {
+		var existe bool
+		err := h.db.QueryRow(""SELECT EXISTS(SELECT 1 FROM Biblioteca WHERE id_biblioteca = $1)"", 
+			*req.IDBiblioteca).Scan(&existe)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar biblioteca"", err)
+		}
+		if !existe {
+			return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Biblioteca não encontrada"", nil)
+		}
+	}
+
+	// Inicia transação
+	tx, err := h.db.Begin()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao iniciar transação"", err)
+	}
+	defer tx.Rollback()
+
+	// Atualiza o livro
+	_, err = tx.Exec(`
+		UPDATE Livros 
+		SET titulo = $1, isbn = $2, numero_paginas = $3, editora = $4, data_publicacao = $5, updated_at = $6 
+		WHERE id_livro = $7`,
+		req.Titulo, req.ISBN, req.NumeroPaginas, req.Editora, req.DataPublicacao, time.Now(), id)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao atualizar livro"", err)
+	}
+
+	// Atualiza a mídia
+	result, err := tx.Exec(`
+		UPDATE Midia 
+		SET condicao = $1, id_biblioteca = $2, updated_at = $3 
+		WHERE id_midia = $4`,
+		req.Condicao, req.IDBiblioteca, time.Now(), id)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao atualizar mídia"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar atualização"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Livro não encontrado"", nil)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao confirmar transação"", err)
+	}
+
+	// Busca o livro atualizado
+	return h.GetLivro(c)
+}
+
+// DeleteLivro exclui um livro
+func (h *LivroHandler) DeleteLivro(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	// Verifica se há empréstimos ativos
+	var emprestimosAtivos int
+	err = h.db.QueryRow(
+		""SELECT COUNT(*) FROM Emprestimo WHERE id_midia = $1 AND data_devolucao IS NULL"",
+		id,
+	).Scan(&emprestimosAtivos)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar empréstimos"", err)
+	}
+
+	if emprestimosAtivos > 0 {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Livro possui empréstimos ativos"", nil)
+	}
+
+	// Inicia transação para deletar livro e dados relacionados
+	tx, err := h.db.Begin()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao iniciar transação"", err)
+	}
+	defer tx.Rollback()
+
+	// Remove autorias
+	_, err = tx.Exec(""DELETE FROM Autorias WHERE id_midia = $1"", id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao remover autorias"", err)
+	}
+
+	// Remove o livro
+	_, err = tx.Exec(""DELETE FROM Livros WHERE id_livro = $1"", id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao excluir livro"", err)
+	}
+
+	// Remove a mídia
+	result, err := tx.Exec(""DELETE FROM Midia WHERE id_midia = $1"", id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao excluir mídia"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar exclusão"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Livro não encontrado"", nil)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao confirmar transação"", err)
+	}
+
+	return c.JSON(utils.SuccessResponse(fiber.Map{""message"": ""Livro excluído com sucesso""}))
+}
+
+// AddAutorToLivro adiciona um autor a um livro
+func (h *LivroHandler) AddAutorToLivro(c *fiber.Ctx) error {
+	livroID, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID do livro inválido"", err)
+	}
+
+	type AddAutorRequest struct {
+		IDAutor int `json:""id_autor"" validate:""required""`
+	}
+
+	var req AddAutorRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Validação falhou"", err)
+	}
+
+	// Verifica se o livro existe
+	var livroExiste bool
+	err = h.db.QueryRow(""SELECT EXISTS(SELECT 1 FROM Livros WHERE id_livro = $1)"", livroID).Scan(&livroExiste)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar livro"", err)
+	}
+	if !livroExiste {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Livro não encontrado"", nil)
+	}
+
+	// Verifica se o autor existe
+	var autorExiste bool
+	err = h.db.QueryRow(""SELECT EXISTS(SELECT 1 FROM Autores WHERE id_autor = $1)"", req.IDAutor).Scan(&autorExiste)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar autor"", err)
+	}
+	if !autorExiste {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Autor não encontrado"", nil)
+	}
+
+	// Verifica se a associação já existe
+	var associacaoExiste bool
+	err = h.db.QueryRow(
+		""SELECT EXISTS(SELECT 1 FROM Autorias WHERE id_autor = $1 AND id_midia = $2)"", 
+		req.IDAutor, livroID).Scan(&associacaoExiste)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar associação"", err)
+	}
+	if associacaoExiste {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Autor já associado ao livro"", nil)
+	}
+
+	// Cria a associação
+	_, err = h.db.Exec(
+		""INSERT INTO Autorias (id_autor, id_midia, created_at) VALUES ($1, $2, $3)"",
+		req.IDAutor, livroID, time.Now())
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao associar autor"", err)
+	}
+
+	return c.JSON(utils.SuccessResponse(fiber.Map{""message"": ""Autor associado com sucesso""}))
+}
+
+// RemoveAutorFromLivro remove um autor de um livro
+func (h *LivroHandler) RemoveAutorFromLivro(c *fiber.Ctx) error {
+	livroID, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID do livro inválido"", err)
+	}
+
+	autorID, err := strconv.Atoi(c.Params(""autor_id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID do autor inválido"", err)
+	}
+
+	result, err := h.db.Exec(
+		""DELETE FROM Autorias WHERE id_autor = $1 AND id_midia = $2"",
+		autorID, livroID)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao remover associação"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar remoção"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Associação não encontrada"", nil)
+	}
+
+	return c.JSON(utils.SuccessResponse(fiber.Map{""message"": ""Associação removida com sucesso""}))
+}
+"
+handlers/autor.go,go,"package handlers
+
+import (
+	""biblioteca-api/models""
+	""biblioteca-api/utils""
+	""database/sql""
+	""strconv""
+	""time""
+
+	""github.com/gofiber/fiber/v2""
+)
+
+type AutorHandler struct {
+	db *sql.DB
+}
+
+func NewAutorHandler(db *sql.DB) *AutorHandler {
+	return &AutorHandler{db: db}
+}
+
+// GetAutores obtém todos os autores
+func (h *AutorHandler) GetAutores(c *fiber.Ctx) error {
+	page := c.QueryInt(""page"", 1)
+	limit := c.QueryInt(""limit"", 10)
+	offset := (page - 1) * limit
+	search := c.Query(""search"")
+
+	query := `
+		SELECT id_autor, nome, data_nascimento, data_falecimento, created_at, updated_at 
+		FROM Autores 
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 1
+
+	if search != """" {
+		query += "" AND LOWER(nome) LIKE LOWER($"" + strconv.Itoa(argCount) + "")""
+		args = append(args, ""%""+search+""%"")
+		argCount++
+	}
+
+	query += "" ORDER BY nome LIMIT $"" + strconv.Itoa(argCount) + "" OFFSET $"" + strconv.Itoa(argCount+1)
+	args = append(args, limit, offset)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar autores"", err)
+	}
+	defer rows.Close()
+
+	var autores []models.Autor
+	for rows.Next() {
+		var autor models.Autor
+		err := rows.Scan(
+			&autor.ID,
+			&autor.Nome,
+			&autor.DataNascimento,
+			&autor.DataFalecimento,
+			&autor.CreatedAt,
+			&autor.UpdatedAt,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+		autores = append(autores, autor)
+	}
+
+	// Contagem total
+	var total int
+	countQuery := ""SELECT COUNT(*) FROM Autores WHERE 1=1""
+	countArgs := []interface{}{}
+
+	if search != """" {
+		countQuery += "" AND LOWER(nome) LIKE LOWER($1)""
+		countArgs = append(countArgs, ""%""+search+""%"")
+	}
+
+	err = h.db.QueryRow(countQuery, countArgs...).Scan(&total)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao contar autores"", err)
+	}
+
+	return c.JSON(utils.PaginatedResponse(autores, page, limit, total))
+}
+
+// GetAutor obtém um autor por ID
+func (h *AutorHandler) GetAutor(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	query := `
+		SELECT id_autor, nome, data_nascimento, data_falecimento, created_at, updated_at 
+		FROM Autores 
+		WHERE id_autor = $1
+	`
+
+	var autor models.Autor
+	err = h.db.QueryRow(query, id).Scan(
+		&autor.ID,
+		&autor.Nome,
+		&autor.DataNascimento,
+		&autor.DataFalecimento,
+		&autor.CreatedAt,
+		&autor.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Autor não encontrado"", err)
+	}
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar autor"", err)
+	}
+
+	return c.JSON(utils.SuccessResponse(autor))
+}
+
+// CreateAutor cria um novo autor
+func (h *AutorHandler) CreateAutor(c *fiber.Ctx) error {
+	type CreateAutorRequest struct {
+		Nome            string     `json:""nome"" validate:""required""`
+		DataNascimento  *time.Time `json:""data_nascimento""`
+		DataFalecimento *time.Time `json:""data_falecimento""`
+	}
+
+	var req CreateAutorRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Validação falhou"", err)
+	}
+
+	query := `
+		INSERT INTO Autores (nome, data_nascimento, data_falecimento, created_at, updated_at) 
+		VALUES ($1, $2, $3, $4, $5) 
+		RETURNING id_autor, created_at, updated_at
+	`
+
+	var autor models.Autor
+	now := time.Now()
+	err := h.db.QueryRow(query, req.Nome, req.DataNascimento, req.DataFalecimento, now, now).Scan(
+		&autor.ID,
+		&autor.CreatedAt,
+		&autor.UpdatedAt,
+	)
+
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao criar autor"", err)
+	}
+
+	autor.Nome = req.Nome
+	autor.DataNascimento = req.DataNascimento
+	autor.DataFalecimento = req.DataFalecimento
+
+	return c.Status(fiber.StatusCreated).JSON(utils.SuccessResponse(autor))
+}
+
+// UpdateAutor atualiza um autor
+func (h *AutorHandler) UpdateAutor(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	type UpdateAutorRequest struct {
+		Nome            *string    `json:""nome""`
+		DataNascimento  *time.Time `json:""data_nascimento""`
+		DataFalecimento *time.Time `json:""data_falecimento""`
+	}
+
+	var req UpdateAutorRequest
+	if err := c.BodyParser(&req); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Dados inválidos"", err)
+	}
+
+	// Constrói query dinamicamente
+	setParts := []string{}
+	args := []interface{}{}
+	argCount := 1
+
+	if req.Nome != nil {
+		setParts = append(setParts, ""nome = $""+strconv.Itoa(argCount))
+		args = append(args, *req.Nome)
+		argCount++
+	}
+	if req.DataNascimento != nil {
+		setParts = append(setParts, ""data_nascimento = $""+strconv.Itoa(argCount))
+		args = append(args, *req.DataNascimento)
+		argCount++
+	}
+	if req.DataFalecimento != nil {
+		setParts = append(setParts, ""data_falecimento = $""+strconv.Itoa(argCount))
+		args = append(args, *req.DataFalecimento)
+		argCount++
+	}
+
+	if len(setParts) == 0 {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Nenhum campo para atualizar"", nil)
+	}
+
+	// Adiciona updated_at
+	setParts = append(setParts, ""updated_at = $""+strconv.Itoa(argCount))
+	args = append(args, time.Now())
+	argCount++
+
+	// Adiciona ID como último parâmetro
+	args = append(args, id)
+
+	query := ""UPDATE Autores SET "" + joinStrings(setParts, "", "") + "" WHERE id_autor = $"" + strconv.Itoa(argCount)
+
+	result, err := h.db.Exec(query, args...)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao atualizar autor"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar atualização"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Autor não encontrado"", nil)
+	}
+
+	// Busca o autor atualizado
+	return h.GetAutor(c)
+}
+
+// DeleteAutor exclui um autor
+func (h *AutorHandler) DeleteAutor(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	// Verifica se há autorias associadas
+	var autoriaCount int
+	err = h.db.QueryRow(""SELECT COUNT(*) FROM Autorias WHERE id_autor = $1"", id).Scan(&autoriaCount)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar autorias"", err)
+	}
+
+	if autoriaCount > 0 {
+		return utils.ErrorResponse(c, fiber.StatusConflict, ""Autor possui obras associadas"", nil)
+	}
+
+	query := ""DELETE FROM Autores WHERE id_autor = $1""
+	result, err := h.db.Exec(query, id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao excluir autor"", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao verificar exclusão"", err)
+	}
+
+	if rowsAffected == 0 {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Autor não encontrado"", nil)
+	}
+
+	return c.JSON(utils.SuccessResponse(fiber.Map{""message"": ""Autor excluído com sucesso""}))
+}
+
+// GetAutorObras obtém as obras de um autor
+func (h *AutorHandler) GetAutorObras(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params(""id""))
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, ""ID inválido"", err)
+	}
+
+	query := `
+		SELECT m.id_midia, m.tipo_midia, m.condicao, m.created_at,
+		       COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) as titulo
+		FROM Autorias au
+		INNER JOIN Midia m ON au.id_midia = m.id_midia
+		LEFT JOIN Livros l ON m.id_midia = l.id_livro AND m.tipo_midia = 'livro'
+		LEFT JOIN Revistas r ON m.id_midia = r.id_revista AND m.tipo_midia = 'revista'
+		LEFT JOIN DVDs d ON m.id_midia = d.id_dvd AND m.tipo_midia = 'dvd'
+		LEFT JOIN Artigos a ON m.id_midia = a.id_artigo AND m.tipo_midia = 'artigo'
+		WHERE au.id_autor = $1
+		ORDER BY titulo
+	`
+
+	rows, err := h.db.Query(query, id)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar obras"", err)
+	}
+	defer rows.Close()
+
+	type ObraAutor struct {
+		ID        int                 `json:""id_midia""`
+		Tipo      models.MidiaTipo    `json:""tipo_midia""`
+		Titulo    string              `json:""titulo""`
+		Condicao  *string             `json:""condicao""`
+		CreatedAt time.Time           `json:""created_at""`
+	}
+
+	var obras []ObraAutor
+	for rows.Next() {
+		var obra ObraAutor
+		err := rows.Scan(
+			&obra.ID,
+			&obra.Tipo,
+			&obra.Condicao,
+			&obra.CreatedAt,
+			&obra.Titulo,
+		)
+		if err != nil {
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao processar dados"", err)
+		}
+		obras = append(obras, obra)
+	}
+
+	return c.JSON(utils.SuccessResponse(obras))
+}
+
+// Helper function para join de strings (reusada)
+func joinStrings(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return """"
+	}
+	if len(strs) == 1 {
+		return strs[0]
+	}
+
+	result := strs[0]
+	for _, s := range strs[1:] {
+		result += sep + s
+	}
+	return result
+}
+"
+handlers/dashboard.go,go,"package handlers
+
+import (
+	""biblioteca-api/utils""
+	""database/sql""
+
+	""github.com/gofiber/fiber/v2""
+)
+
+type DashboardHandler struct {
+	db *sql.DB
+}
+
+func NewDashboardHandler(db *sql.DB) *DashboardHandler {
+	return &DashboardHandler{db: db}
+}
+
+// GetDashboard retorna dados gerais do dashboard
+func (h *DashboardHandler) GetDashboard(c *fiber.Ctx) error {
+	dashboard := fiber.Map{}
+
+	// Total de usuários
+	var totalUsuarios int
+	err := h.db.QueryRow(""SELECT COUNT(*) FROM Usuario"").Scan(&totalUsuarios)
+	if err != nil {
+		totalUsuarios = 0
+	}
+	dashboard[""total_usuarios""] = totalUsuarios
+
+	// Total de livros
+	var totalLivros int
+	err = h.db.QueryRow(""SELECT COUNT(*) FROM Livros"").Scan(&totalLivros)
+	if err != nil {
+		totalLivros = 0
+	}
+	dashboard[""total_livros""] = totalLivros
+
+	// Total de empréstimos ativos
+	var emprestimosAtivos int
+	err = h.db.QueryRow(`
+		SELECT COUNT(*) FROM Emprestimo 
+		WHERE status = 'ativo' AND data_devolucao IS NULL
+	`).Scan(&emprestimosAtivos)
+	if err != nil {
+		emprestimosAtivos = 0
+	}
+	dashboard[""emprestimos_ativos""] = emprestimosAtivos
+
+	// Total de empréstimos em atraso
+	var emprestimosAtrasados int
+	err = h.db.QueryRow(`
+		SELECT COUNT(*) FROM Emprestimo 
+		WHERE status = 'ativo' 
+		  AND data_devolucao IS NULL 
+		  AND data_devolucao_prevista < CURRENT_DATE
+	`).Scan(&emprestimosAtrasados)
+	if err != nil {
+		emprestimosAtrasados = 0
+	}
+	dashboard[""emprestimos_atrasados""] = emprestimosAtrasados
+
+	// Total de bibliotecas
+	var totalBibliotecas int
+	err = h.db.QueryRow(""SELECT COUNT(*) FROM Biblioteca"").Scan(&totalBibliotecas)
+	if err != nil {
+		totalBibliotecas = 0
+	}
+	dashboard[""total_bibliotecas""] = totalBibliotecas
+
+	// Total de autores
+	var totalAutores int
+	err = h.db.QueryRow(""SELECT COUNT(*) FROM Autores"").Scan(&totalAutores)
+	if err != nil {
+		totalAutores = 0
+	}
+	dashboard[""total_autores""] = totalAutores
+
+	// Penalizações ativas
+	var penalizacoesAtivas int
+	err = h.db.QueryRow(`
+		SELECT COUNT(*) FROM Penalizacao 
+		WHERE final_penalizacao IS NULL OR final_penalizacao > CURRENT_DATE
+	`).Scan(&penalizacoesAtivas)
+	if err != nil {
+		penalizacoesAtivas = 0
+	}
+	dashboard[""penalizacoes_ativas""] = penalizacoesAtivas
+
+	return c.JSON(utils.SuccessResponse(dashboard))
+}
+
+// GetEstatisticas retorna estatísticas detalhadas
+func (h *DashboardHandler) GetEstatisticas(c *fiber.Ctx) error {
+	stats := fiber.Map{}
+
+	// Distribuição por tipo de mídia
+	rows, err := h.db.Query(`
+		SELECT tipo_midia, COUNT(*) as total
+		FROM Midia
+		GROUP BY tipo_midia
+		ORDER BY total DESC
+	`)
+	if err == nil {
+		defer rows.Close()
+		var distribuicaoMidia []fiber.Map
+		for rows.Next() {
+			var tipo string
+			var total int
+			err := rows.Scan(&tipo, &total)
+			if err == nil {
+				distribuicaoMidia = append(distribuicaoMidia, fiber.Map{
+					""tipo"":  tipo,
+					""total"": total,
+				})
+			}
+		}
+		stats[""distribuicao_midia""] = distribuicaoMidia
+	}
+
+	// Status dos empréstimos
+	rows, err = h.db.Query(`
+		SELECT status, COUNT(*) as total
+		FROM Emprestimo
+		GROUP BY status
+		ORDER BY total DESC
+	`)
+	if err == nil {
+		defer rows.Close()
+		var statusEmprestimos []fiber.Map
+		for rows.Next() {
+			var status string
+			var total int
+			err := rows.Scan(&status, &total)
+			if err == nil {
+				statusEmprestimos = append(statusEmprestimos, fiber.Map{
+					""status"": status,
+					""total"":  total,
+				})
+			}
+		}
+		stats[""status_emprestimos""] = statusEmprestimos
+	}
+
+	// Mídias por biblioteca
+	rows, err = h.db.Query(`
+		SELECT b.nome, COUNT(m.id_midia) as total
+		FROM Biblioteca b
+		LEFT JOIN Midia m ON b.id_biblioteca = m.id_biblioteca
+		GROUP BY b.id_biblioteca, b.nome
+		ORDER BY total DESC
+	`)
+	if err == nil {
+		defer rows.Close()
+		var midiasPorBiblioteca []fiber.Map
+		for rows.Next() {
+			var nome string
+			var total int
+			err := rows.Scan(&nome, &total)
+			if err == nil {
+				midiasPorBiblioteca = append(midiasPorBiblioteca, fiber.Map{
+					""biblioteca"": nome,
+					""total"":      total,
+				})
+			}
+		}
+		stats[""midias_por_biblioteca""] = midiasPorBiblioteca
+	}
+
+	return c.JSON(utils.SuccessResponse(stats))
+}
+
+// GetEmprestimosPorMes retorna empréstimos agrupados por mês
+func (h *DashboardHandler) GetEmprestimosPorMes(c *fiber.Ctx) error {
+	query := `
+		SELECT 
+			DATE_TRUNC('month', data_emprestimo) as mes,
+			COUNT(*) as total
+		FROM Emprestimo
+		WHERE data_emprestimo >= CURRENT_DATE - INTERVAL '12 months'
+		GROUP BY DATE_TRUNC('month', data_emprestimo)
+		ORDER BY mes DESC
+		LIMIT 12
+	`
+
+	rows, err := h.db.Query(query)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar dados"", err)
+	}
+	defer rows.Close()
+
+	var emprestimosPorMes []fiber.Map
+	for rows.Next() {
+		var mes string
+		var total int
+		err := rows.Scan(&mes, &total)
+		if err == nil {
+			emprestimosPorMes = append(emprestimosPorMes, fiber.Map{
+				""mes"":   mes,
+				""total"": total,
+			})
+		}
+	}
+
+	return c.JSON(utils.SuccessResponse(emprestimosPorMes))
+}
+
+// GetLivrosMaisEmprestados retorna os livros mais emprestados
+func (h *DashboardHandler) GetLivrosMaisEmprestados(c *fiber.Ctx) error {
+	limit := c.QueryInt(""limit"", 10)
+
+	query := `
+		SELECT 
+			l.id_livro,
+			l.titulo,
+			l.isbn,
+			COUNT(e.id_emprestimo) as total_emprestimos
+		FROM Livros l
+		INNER JOIN Emprestimo e ON l.id_livro = e.id_midia
+		GROUP BY l.id_livro, l.titulo, l.isbn
+		ORDER BY total_emprestimos DESC
+		LIMIT $1
+	`
+
+	rows, err := h.db.Query(query, limit)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar dados"", err)
+	}
+	defer rows.Close()
+
+	var livrosMaisEmprestados []fiber.Map
+	for rows.Next() {
+		var id, totalEmprestimos int
+		var titulo, isbn string
+		err := rows.Scan(&id, &titulo, &isbn, &totalEmprestimos)
+		if err == nil {
+			livrosMaisEmprestados = append(livrosMaisEmprestados, fiber.Map{
+				""id"":                id,
+				""titulo"":            titulo,
+				""isbn"":              isbn,
+				""total_emprestimos"": totalEmprestimos,
+			})
+		}
+	}
+
+	return c.JSON(utils.SuccessResponse(livrosMaisEmprestados))
+}
+
+// GetUsuariosMaisAtivos retorna os usuários mais ativos
+func (h *DashboardHandler) GetUsuariosMaisAtivos(c *fiber.Ctx) error {
+	limit := c.QueryInt(""limit"", 10)
+
+	query := `
+		SELECT 
+			u.id_usuario,
+			u.nome,
+			u.email,
+			COUNT(e.id_emprestimo) as total_emprestimos
+		FROM Usuario u
+		INNER JOIN Emprestimo e ON u.id_usuario = e.id_usuario
+		GROUP BY u.id_usuario, u.nome, u.email
+		ORDER BY total_emprestimos DESC
+		LIMIT $1
+	`
+
+	rows, err := h.db.Query(query, limit)
+	if err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, ""Erro ao buscar dados"", err)
+	}
+	defer rows.Close()
+
+	var usuariosMaisAtivos []fiber.Map
+	for rows.Next() {
+		var id, totalEmprestimos int
+		var nome string
+		var email *string
+		err := rows.Scan(&id, &nome, &email, &totalEmprestimos)
+		if err == nil {
+			usuariosMaisAtivos = append(usuariosMaisAtivos, fiber.Map{
+				""id"":                id,
+				""nome"":              nome,
+				""email"":             email,
+				""total_emprestimos"": totalEmprestimos,
+			})
+		}
+	}
+
+	return c.JSON(utils.SuccessResponse(usuariosMaisAtivos))
+}
+"
+routes/routes.go,go,"package routes
+
+import (
+	""database/sql""
+
+	""biblioteca-api/handlers""
+	""biblioteca-api/utils""
+
+	""github.com/gofiber/fiber/v2""
+)
+
+// SetupRoutes configura todas as rotas da API
+func SetupRoutes(app *fiber.App, db *sql.DB) {
+	// Inicializa handlers
+	usuarioHandler := handlers.NewUsuarioHandler(db)
+	bibliotecaHandler := handlers.NewBibliotecaHandler(db)
+	midiaHandler := handlers.NewMidiaHandler(db)
+	emprestimoHandler := handlers.NewEmprestimoHandler(db)
+	livroHandler := handlers.NewLivroHandler(db)
+	autorHandler := handlers.NewAutorHandler(db)
+	dashboardHandler := handlers.NewDashboardHandler(db)
+
+	// Grupo da API v1
+	api := app.Group(""/api/v1"")
+
+	// Middleware de logging para todas as rotas da API
+	api.Use(func(c *fiber.Ctx) error {
+		return c.Next()
+	})
+
+	// Rota de informações da API
+	api.Get(""/"", func(c *fiber.Ctx) error {
+		return c.JSON(utils.SuccessResponse(fiber.Map{
+			""name"":        ""Biblioteca API"",
+			""version"":     ""1.0.0"",
+			""description"": ""Sistema de Gerenciamento de Biblioteca"",
+			""endpoints"": fiber.Map{
+				""usuarios"":     ""/api/v1/usuarios"",
+				""bibliotecas"":  ""/api/v1/bibliotecas"", 
+				""midias"":       ""/api/v1/midias"",
+				""emprestimos"":  ""/api/v1/emprestimos"",
+				""livros"":       ""/api/v1/livros"",
+				""autores"":      ""/api/v1/autores"",
+				""dashboard"":    ""/api/v1/dashboard"",
+			},
+		}))
+	})
+
+	// Rotas de Usuários
+	usuarios := api.Group(""/usuarios"")
+	usuarios.Get(""/"", usuarioHandler.GetUsuarios)
+	usuarios.Get(""/:id"", usuarioHandler.GetUsuario)
+	usuarios.Post(""/"", usuarioHandler.CreateUsuario)
+	usuarios.Put(""/:id"", usuarioHandler.UpdateUsuario)
+	usuarios.Delete(""/:id"", usuarioHandler.DeleteUsuario)
+	usuarios.Get(""/:id/emprestimos"", usuarioHandler.GetUsuarioEmprestimos)
+
+	// Rotas de Bibliotecas
+	bibliotecas := api.Group(""/bibliotecas"")
+	bibliotecas.Get(""/"", bibliotecaHandler.GetBibliotecas)
+	bibliotecas.Get(""/:id"", bibliotecaHandler.GetBiblioteca)
+	bibliotecas.Post(""/"", bibliotecaHandler.CreateBiblioteca)
+	bibliotecas.Put(""/:id"", bibliotecaHandler.UpdateBiblioteca)
+	bibliotecas.Delete(""/:id"", bibliotecaHandler.DeleteBiblioteca)
+	bibliotecas.Get(""/:id/midias"", bibliotecaHandler.GetBibliotecaMidias)
+
+	// Rotas de Mídias
+	midias := api.Group(""/midias"")
+	midias.Get(""/"", midiaHandler.GetMidias)
+	midias.Get(""/:id"", midiaHandler.GetMidia)
+	midias.Post(""/"", midiaHandler.CreateMidia)
+	midias.Put(""/:id"", midiaHandler.UpdateMidia)
+	midias.Delete(""/:id"", midiaHandler.DeleteMidia)
+
+	// Rotas de Empréstimos
+	emprestimos := api.Group(""/emprestimos"")
+	emprestimos.Get(""/"", emprestimoHandler.GetEmprestimos)
+	emprestimos.Get(""/:id"", emprestimoHandler.GetEmprestimo)
+	emprestimos.Post(""/"", emprestimoHandler.CreateEmprestimo)
+	emprestimos.Put(""/:id/devolver"", emprestimoHandler.DevolverEmprestimo)
+	emprestimos.Put(""/:id/renovar"", emprestimoHandler.RenovarEmprestimo)
+	emprestimos.Get(""/atrasados"", emprestimoHandler.GetEmprestimosAtrasados)
+
+	// Rotas de Livros
+	livros := api.Group(""/livros"")
+	livros.Get(""/"", livroHandler.GetLivros)
+	livros.Get(""/:id"", livroHandler.GetLivro)
+	livros.Post(""/"", livroHandler.CreateLivro)
+	livros.Put(""/:id"", livroHandler.UpdateLivro)
+	livros.Delete(""/:id"", livroHandler.DeleteLivro)
+	livros.Post(""/:id/autores"", livroHandler.AddAutorToLivro)
+	livros.Delete(""/:id/autores/:autor_id"", livroHandler.RemoveAutorFromLivro)
+
+	// Rotas de Autores
+	autores := api.Group(""/autores"")
+	autores.Get(""/"", autorHandler.GetAutores)
+	autores.Get(""/:id"", autorHandler.GetAutor)
+	autores.Post(""/"", autorHandler.CreateAutor)
+	autores.Put(""/:id"", autorHandler.UpdateAutor)
+	autores.Delete(""/:id"", autorHandler.DeleteAutor)
+	autores.Get(""/:id/obras"", autorHandler.GetAutorObras)
+
+	// Rotas de Dashboard/Relatórios
+	dashboard := api.Group(""/dashboard"")
+	dashboard.Get(""/"", dashboardHandler.GetDashboard)
+	dashboard.Get(""/estatisticas"", dashboardHandler.GetEstatisticas)
+	dashboard.Get(""/emprestimos-por-mes"", dashboardHandler.GetEmprestimosPorMes)
+	dashboard.Get(""/livros-mais-emprestados"", dashboardHandler.GetLivrosMaisEmprestados)
+	dashboard.Get(""/usuarios-mais-ativos"", dashboardHandler.GetUsuariosMaisAtivos)
+
+	// Rotas de busca global
+	search := api.Group(""/search"")
+	search.Get(""/"", func(c *fiber.Ctx) error {
+		query := c.Query(""q"")
+		if query == """" {
+			return utils.ErrorResponse(c, fiber.StatusBadRequest, ""Parâmetro de busca 'q' é obrigatório"", nil)
+		}
+
+		// Busca em múltiplas entidades
+		results := fiber.Map{
+			""livros"":   []interface{}{},
+			""autores"":  []interface{}{},
+			""usuarios"": []interface{}{},
+		}
+
+		// Busca livros
+		livrosQuery := `
+			SELECT l.id_livro, l.titulo, l.isbn, m.condicao
+			FROM Livros l
+			INNER JOIN Midia m ON l.id_livro = m.id_midia
+			WHERE LOWER(l.titulo) LIKE LOWER($1) OR LOWER(l.isbn) LIKE LOWER($1)
+			LIMIT 5
+		`
+		rows, err := db.Query(livrosQuery, ""%""+query+""%"")
+		if err == nil {
+			defer rows.Close()
+			var livros []fiber.Map
+			for rows.Next() {
+				var livro fiber.Map = make(fiber.Map)
+				var id int
+				var titulo, isbn string
+				var condicao *string
+
+				err := rows.Scan(&id, &titulo, &isbn, &condicao)
+				if err == nil {
+					livro[""id""] = id
+					livro[""titulo""] = titulo
+					livro[""isbn""] = isbn
+					livro[""condicao""] = condicao
+					livros = append(livros, livro)
+				}
+			}
+			results[""livros""] = livros
+		}
+
+		// Busca autores
+		autoresQuery := `
+			SELECT id_autor, nome
+			FROM Autores
+			WHERE LOWER(nome) LIKE LOWER($1)
+			LIMIT 5
+		`
+		rows, err = db.Query(autoresQuery, ""%""+query+""%"")
+		if err == nil {
+			defer rows.Close()
+			var autores []fiber.Map
+			for rows.Next() {
+				var autor fiber.Map = make(fiber.Map)
+				var id int
+				var nome string
+
+				err := rows.Scan(&id, &nome)
+				if err == nil {
+					autor[""id""] = id
+					autor[""nome""] = nome
+					autores = append(autores, autor)
+				}
+			}
+			results[""autores""] = autores
+		}
+
+		// Busca usuários
+		usuariosQuery := `
+			SELECT id_usuario, nome, email
+			FROM Usuario
+			WHERE LOWER(nome) LIKE LOWER($1) OR LOWER(email) LIKE LOWER($1)
+			LIMIT 5
+		`
+		rows, err = db.Query(usuariosQuery, ""%""+query+""%"")
+		if err == nil {
+			defer rows.Close()
+			var usuarios []fiber.Map
+			for rows.Next() {
+				var usuario fiber.Map = make(fiber.Map)
+				var id int
+				var nome string
+				var email *string
+
+				err := rows.Scan(&id, &nome, &email)
+				if err == nil {
+					usuario[""id""] = id
+					usuario[""nome""] = nome
+					usuario[""email""] = email
+					usuarios = append(usuarios, usuario)
+				}
+			}
+			results[""usuarios""] = usuarios
+		}
+
+		return c.JSON(utils.SuccessResponse(results))
+	})
+
+	// Middleware para rotas não encontradas
+	app.Use(func(c *fiber.Ctx) error {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, ""Rota não encontrada"", nil)
+	})
+}
+"
+utils/utils.go,go,"package utils
+
+import (
+	""fmt""
+	""reflect""
+	""strings""
+
+	""github.com/go-playground/validator/v10""
+	""github.com/gofiber/fiber/v2""
+)
+
+var validate = validator.New()
+
+// Response padrão para API
+type APIResponse struct {
+	Success bool        `json:""success""`
+	Data    interface{} `json:""data,omitempty""`
+	Message string      `json:""message,omitempty""`
+	Error   string      `json:""error,omitempty""`
+}
+
+// Response paginada
+type PaginatedAPIResponse struct {
+	Success    bool        `json:""success""`
+	Data       interface{} `json:""data""`
+	Pagination Pagination  `json:""pagination""`
+}
+
+type Pagination struct {
+	Page       int `json:""page""`
+	Limit      int `json:""limit""`
+	Total      int `json:""total""`
+	TotalPages int `json:""total_pages""`
+}
+
+// SuccessResponse retorna uma resposta de sucesso
+func SuccessResponse(data interface{}) APIResponse {
+	return APIResponse{
+		Success: true,
+		Data:    data,
+	}
+}
+
+// SuccessMessageResponse retorna uma resposta de sucesso com mensagem
+func SuccessMessageResponse(message string, data interface{}) APIResponse {
+	return APIResponse{
+		Success: true,
+		Data:    data,
+		Message: message,
+	}
+}
+
+// ErrorResponse retorna uma resposta de erro
+func ErrorResponse(c *fiber.Ctx, status int, message string, err error) error {
+	response := APIResponse{
+		Success: false,
+		Message: message,
+	}
+
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	return c.Status(status).JSON(response)
+}
+
+// PaginatedResponse retorna uma resposta paginada
+func PaginatedResponse(data interface{}, page, limit, total int) PaginatedAPIResponse {
+	totalPages := total / limit
+	if total%limit != 0 {
+		totalPages++
+	}
+
+	return PaginatedAPIResponse{
+		Success: true,
+		Data:    data,
+		Pagination: Pagination{
+			Page:       page,
+			Limit:      limit,
+			Total:      total,
+			TotalPages: totalPages,
+		},
+	}
+}
+
+// ValidateStruct valida uma struct usando tags de validação
+func ValidateStruct(s interface{}) error {
+	err := validate.Struct(s)
+	if err != nil {
+		var validationErrors []string
+		for _, err := range err.(validator.ValidationErrors) {
+			validationErrors = append(validationErrors, formatValidationError(err))
+		}
+		return fmt.Errorf(""validation failed: %s"", strings.Join(validationErrors, "", ""))
+	}
+	return nil
+}
+
+// formatValidationError formata erros de validação
+func formatValidationError(err validator.FieldError) string {
+	field := strings.ToLower(err.Field())
+	tag := err.Tag()
+
+	switch tag {
+	case ""required"":
+		return fmt.Sprintf(""%s é obrigatório"", field)
+	case ""email"":
+		return fmt.Sprintf(""%s deve ser um email válido"", field)
+	case ""min"":
+		return fmt.Sprintf(""%s deve ter pelo menos %s caracteres"", field, err.Param())
+	case ""max"":
+		return fmt.Sprintf(""%s deve ter no máximo %s caracteres"", field, err.Param())
+	case ""numeric"":
+		return fmt.Sprintf(""%s deve ser numérico"", field)
+	default:
+		return fmt.Sprintf(""%s é inválido"", field)
+	}
+}
+
+// IsEmpty verifica se um valor é vazio
+func IsEmpty(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.String, reflect.Array, reflect.Slice, reflect.Map:
+		return v.Len() == 0
+	case reflect.Ptr:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+// StringPtr retorna um ponteiro para string
+func StringPtr(s string) *string {
+	return &s
+}
+
+// IntPtr retorna um ponteiro para int
+func IntPtr(i int) *int {
+	return &i
+}
+
+// BoolPtr retorna um ponteiro para bool
+func BoolPtr(b bool) *bool {
+	return &b
+}
+
+// GetStringValue retorna o valor de um ponteiro de string ou string vazia
+func GetStringValue(s *string) string {
+	if s == nil {
+		return """"
+	}
+	return *s
+}
+
+// GetIntValue retorna o valor de um ponteiro de int ou 0
+func GetIntValue(i *int) int {
+	if i == nil {
+		return 0
+	}
+	return *i
+}
+
+// Contains verifica se um slice contém um elemento
+func Contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveDuplicates remove duplicatas de um slice de strings
+func RemoveDuplicates(slice []string) []string {
+	keys := make(map[string]bool)
+	var result []string
+
+	for _, item := range slice {
+		if !keys[item] {
+			keys[item] = true
+			result = append(result, item)
+		}
+	}
+
+	return result
+}
+
+// ParseDateFormat converte diferentes formatos de data
+func ParseDateFormat(dateStr string) string {
+	// Remove espaços
+	dateStr = strings.TrimSpace(dateStr)
+
+	// Converte formatos comuns para ISO 8601
+	if len(dateStr) == 10 {
+		// Assume DD/MM/YYYY ou DD-MM-YYYY
+		if strings.Contains(dateStr, ""/"") {
+			parts := strings.Split(dateStr, ""/"")
+			if len(parts) == 3 {
+				return fmt.Sprintf(""%s-%s-%s"", parts[2], parts[1], parts[0])
+			}
+		} else if strings.Contains(dateStr, ""-"") {
+			parts := strings.Split(dateStr, ""-"")
+			if len(parts) == 3 && len(parts[0]) == 2 {
+				return fmt.Sprintf(""%s-%s-%s"", parts[2], parts[1], parts[0])
+			}
+		}
+	}
+
+	return dateStr
+}
+
+// SanitizeString remove caracteres especiais de uma string
+func SanitizeString(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, ""  "", "" "") // Remove espaços duplos
+	return s
+}
+
+// BuildSearchQuery constrói uma query de busca com LIKE
+func BuildSearchQuery(fields []string, search string) (string, []interface{}) {
+	if search == """" {
+		return """", nil
+	}
+
+	var conditions []string
+	var args []interface{}
+
+	searchTerm := ""%"" + strings.ToLower(search) + ""%""
+
+	for i, field := range fields {
+		conditions = append(conditions, fmt.Sprintf(""LOWER(%s) LIKE $%d"", field, i+1))
+		args = append(args, searchTerm)
+	}
+
+	query := ""("" + strings.Join(conditions, "" OR "") + "")""
+	return query, args
+}
+
+// FormatCurrency formata um valor para moeda brasileira
+func FormatCurrency(value float64) string {
+	return fmt.Sprintf(""R$ %.2f"", value)
+}
+
+// CalculateDaysBetween calcula dias entre duas datas
+func CalculateDaysBetween(start, end string) int {
+	// Implementação básica - pode ser expandida
+	return 0
+}
+"
+go.mod,mod,"module biblioteca-api
+
+go 1.21
+
+require (
+	github.com/gofiber/fiber/v2 v2.52.0
+	github.com/lib/pq v1.10.9
+	github.com/go-playground/validator/v10 v10.16.0
+	github.com/joho/godotenv v1.5.1
+)
+
+require (
+	github.com/andybalholm/brotli v1.0.5 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
+	github.com/go-playground/locales v0.14.1 // indirect
+	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/google/uuid v1.5.0 // indirect
+	github.com/klauspost/compress v1.17.0 // indirect
+	github.com/leodido/go-urn v1.2.4 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-runewidth v0.0.15 // indirect
+	github.com/rivo/uniseg v0.2.0 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	github.com/valyala/fasthttp v1.51.0 // indirect
+	github.com/valyala/tcplisten v1.0.0 // indirect
+	golang.org/x/crypto v0.7.0 // indirect
+	golang.org/x/net v0.8.0 // indirect
+	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/text v0.8.0 // indirect
+)
+"
+Dockerfile,docker,"# Build stage
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+RUN apk add --no-cache git
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+
+# Final stage
+FROM alpine:latest
+
+# Install ca-certificates for HTTPS
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /root/
+
+# Copy the binary from builder stage
+COPY --from=builder /app/main .
+
+# Expose port
+EXPOSE 3000
+
+# Command to run
+CMD [""./main""]
+"
+docker-compose.yml,yaml,"version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: biblioteca_postgres
+    environment:
+      POSTGRES_DB: biblioteca
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - ""5432:5432""
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [""CMD-SHELL"", ""pg_isready -U postgres""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: biblioteca_api
+    environment:
+      DATABASE_URL: ""host=postgres port=5432 user=postgres password=postgres dbname=biblioteca sslmode=disable""
+      PORT: ""3000""
+      ENVIRONMENT: ""production""
+    ports:
+      - ""3000:3000""
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: biblioteca_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@biblioteca.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - ""8080:80""
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+"
+.env.example,env,"# Configurações do Banco de Dados
+DATABASE_URL=host=localhost port=5432 user=postgres password=postgres dbname=biblioteca sslmode=disable
+
+# Configurações do Servidor
+PORT=3000
+ENVIRONMENT=development
+
+# Configurações opcionais
+LOG_LEVEL=info
+CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+"
+Makefile,make,"# Makefile para o projeto Biblioteca API
+
+.PHONY: help build run test clean docker-up docker-down install dev
+
+# Variáveis
+BINARY_NAME=biblioteca-api
+DOCKER_COMPOSE_FILE=docker-compose.yml
+
+help: ## Mostra esta ajuda
+	@echo ""Comandos disponíveis:""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = "":.*?## ""}; {printf ""\033[36m%-15s\033[0m %s\n"", $$1, $$2}'
+
+install: ## Instala as dependências
+	go mod download
+	go mod tidy
+
+build: ## Compila a aplicação
+	go build -o $(BINARY_NAME) .
+
+run: ## Executa a aplicação
+	go run .
+
+dev: ## Executa em modo desenvolvimento com reload
+	go run . --dev
+
+test: ## Executa os testes
+	go test -v ./...
+
+test-coverage: ## Executa testes com cobertura
+	go test -v -cover ./...
+
+clean: ## Remove arquivos gerados
+	go clean
+	rm -f $(BINARY_NAME)
+
+docker-build: ## Constrói a imagem Docker
+	docker build -t $(BINARY_NAME) .
+
+docker-up: ## Sobe os containers
+	docker-compose -f $(DOCKER_COMPOSE_FILE) up -d
+
+docker-down: ## Para os containers
+	docker-compose -f $(DOCKER_COMPOSE_FILE) down
+
+docker-logs: ## Mostra logs dos containers
+	docker-compose -f $(DOCKER_COMPOSE_FILE) logs -f
+
+docker-rebuild: ## Reconstrói e sobe os containers
+	docker-compose -f $(DOCKER_COMPOSE_FILE) down
+	docker-compose -f $(DOCKER_COMPOSE_FILE) up --build -d
+
+setup-db: ## Configura o banco de dados
+	@echo ""Configurando banco de dados...""
+	@echo ""Aguarde a inicialização do PostgreSQL...""
+	sleep 10
+	@echo ""Banco configurado!""
+
+format: ## Formata o código
+	go fmt ./...
+
+lint: ## Executa linter
+	golangci-lint run
+
+security: ## Verifica vulnerabilidades
+	gosec ./...
+
+mod-update: ## Atualiza dependências
+	go get -u ./...
+	go mod tidy
+
+.DEFAULT_GOAL := help
+"
+README.md,md,"# Sistema de Gerenciamento de Biblioteca - API
+
+Uma API REST completa para gerenciamento de bibliotecas, desenvolvida em Go com Fiber framework e PostgreSQL.
+
+## 🚀 Características
+
+- **CRUD completo** para todas as entidades (Usuários, Bibliotecas, Mídias, Empréstimos, etc.)
+- **Sistema de empréstimos** com controle de datas e renovações
+- **Gerenciamento de penalizações** por atraso
+- **Dashboard com estatísticas** e relatórios
+- **Busca global** em múltiplas entidades
+- **Paginação** em todas as listagens
+- **Validação de dados** robusta
+- **Tratamento de erros** padronizado
+- **Documentação** completa da API
+
+## 🏗️ Arquitetura
+
+O projeto segue uma arquitetura limpa e organizada:
+
+```
+biblioteca-api/
+├── cmd/                    # Ponto de entrada da aplicação
+├── config/                 # Configurações
+├── database/              # Conexão e schemas do banco
+├── handlers/              # Controladores HTTP
+├── models/                # Modelos de dados
+├── routes/                # Definição das rotas
+├── utils/                 # Utilitários e helpers
+├── docker-compose.yml     # Configuração Docker
+├── Dockerfile            # Imagem Docker
+├── Makefile              # Comandos automatizados
+└── README.md             # Esta documentação
+```
+
+## 🛠️ Tecnologias Utilizadas
+
+- **Go 1.21+** - Linguagem de programação
+- **Fiber v2** - Framework web rápido e minimalista
+- **PostgreSQL** - Banco de dados relacional
+- **Docker & Docker Compose** - Containerização
+- **database/sql** - Driver nativo do PostgreSQL (sem ORM)
+
+## 📦 Instalação e Execução
+
+### Pré-requisitos
+
+- Go 1.21 ou superior
+- PostgreSQL 13+
+- Docker e Docker Compose (opcional)
+
+### Método 1: Execução Local
+
+1. **Clone o repositório:**
+```bash
+git clone <repository-url>
+cd biblioteca-api
+```
+
+2. **Instale as dependências:**
+```bash
+make install
+# ou
+go mod download
+```
+
+3. **Configure as variáveis de ambiente:**
+```bash
+cp .env.example .env
+# Edite o arquivo .env conforme necessário
+```
+
+4. **Configure o PostgreSQL:**
+```bash
+# Crie o banco de dados
+createdb biblioteca
+
+# Execute as migrações (o schema será criado automaticamente na primeira execução)
+```
+
+5. **Execute a aplicação:**
+```bash
+make run
+# ou
+go run .
+```
+
+### Método 2: Docker (Recomendado)
+
+1. **Clone o repositório:**
+```bash
+git clone <repository-url>
+cd biblioteca-api
+```
+
+2. **Suba os containers:**
+```bash
+make docker-up
+```
+
+3. **Verifique os logs:**
+```bash
+make docker-logs
+```
+
+A API estará disponível em `http://localhost:3000`
+O pgAdmin estará disponível em `http://localhost:8080` (admin@biblioteca.com / admin123)
+
+## 📖 Uso da API
+
+### Endpoints Principais
+
+#### Autenticação
+A API não implementa autenticação por padrão, mas é estruturada para facilitar a adição de JWT ou OAuth.
+
+#### Usuários
+```http
+GET    /api/v1/usuarios              # Lista usuários
+GET    /api/v1/usuarios/{id}         # Busca usuário por ID
+POST   /api/v1/usuarios              # Cria usuário
+PUT    /api/v1/usuarios/{id}         # Atualiza usuário
+DELETE /api/v1/usuarios/{id}         # Remove usuário
+GET    /api/v1/usuarios/{id}/emprestimos # Empréstimos do usuário
+```
+
+#### Bibliotecas
+```http
+GET    /api/v1/bibliotecas           # Lista bibliotecas
+GET    /api/v1/bibliotecas/{id}      # Busca biblioteca por ID
+POST   /api/v1/bibliotecas           # Cria biblioteca
+PUT    /api/v1/bibliotecas/{id}      # Atualiza biblioteca
+DELETE /api/v1/bibliotecas/{id}      # Remove biblioteca
+GET    /api/v1/bibliotecas/{id}/midias # Mídias da biblioteca
+```
+
+#### Livros
+```http
+GET    /api/v1/livros                # Lista livros
+GET    /api/v1/livros/{id}           # Busca livro por ID
+POST   /api/v1/livros                # Cria livro
+PUT    /api/v1/livros/{id}           # Atualiza livro
+DELETE /api/v1/livros/{id}           # Remove livro
+POST   /api/v1/livros/{id}/autores   # Adiciona autor ao livro
+DELETE /api/v1/livros/{id}/autores/{autor_id} # Remove autor do livro
+```
+
+#### Empréstimos
+```http
+GET    /api/v1/emprestimos           # Lista empréstimos
+GET    /api/v1/emprestimos/{id}      # Busca empréstimo por ID
+POST   /api/v1/emprestimos           # Cria empréstimo
+PUT    /api/v1/emprestimos/{id}/devolver # Devolve empréstimo
+PUT    /api/v1/emprestimos/{id}/renovar  # Renova empréstimo
+GET    /api/v1/emprestimos/atrasados      # Lista empréstimos em atraso
+```
+
+#### Dashboard
+```http
+GET    /api/v1/dashboard             # Estatísticas gerais
+GET    /api/v1/dashboard/estatisticas     # Estatísticas detalhadas
+GET    /api/v1/dashboard/emprestimos-por-mes # Gráfico empréstimos/mês
+GET    /api/v1/dashboard/livros-mais-emprestados # Top livros
+```
+
+#### Busca Global
+```http
+GET    /api/v1/search?q={termo}     # Busca em múltiplas entidades
+```
+
+### Exemplos de Requisições
+
+#### Criar um usuário:
+```bash
+curl -X POST http://localhost:3000/api/v1/usuarios \
+  -H ""Content-Type: application/json"" \
+  -d '{
+    ""nome"": ""João Silva"",
+    ""email"": ""joao@email.com"",
+    ""endereco"": ""Rua das Flores, 123"",
+    ""telefone"": ""(11) 99999-9999""
+  }'
+```
+
+#### Criar um livro:
+```bash
+curl -X POST http://localhost:3000/api/v1/livros \
+  -H ""Content-Type: application/json"" \
+  -d '{
+    ""titulo"": ""O Senhor dos Anéis"",
+    ""isbn"": ""978-0544003415"",
+    ""numero_paginas"": 1178,
+    ""editora"": ""Martins Fontes"",
+    ""data_publicacao"": ""2019-11-25T00:00:00Z"",
+    ""tipo_midia"": ""livro"",
+    ""condicao"": ""novo"",
+    ""id_biblioteca"": 1
+  }'
+```
+
+#### Fazer um empréstimo:
+```bash
+curl -X POST http://localhost:3000/api/v1/emprestimos \
+  -H ""Content-Type: application/json"" \
+  -d '{
+    ""data_emprestimo"": ""2024-01-15T10:00:00Z"",
+    ""data_devolucao_prevista"": ""2024-01-30T10:00:00Z"",
+    ""id_midia"": 1,
+    ""id_usuario"": 1
+  }'
+```
+
+### Parâmetros de Query Comuns
+
+- `page` - Número da página (padrão: 1)
+- `limit` - Itens por página (padrão: 10)
+- `search` - Termo de busca
+- `status` - Filtro por status
+- `tipo` - Filtro por tipo de mídia
+
+## 🗃️ Modelo de Dados
+
+### Entidades Principais
+
+1. **Usuario** - Informações dos usuários da biblioteca
+2. **Biblioteca** - Dados das bibliotecas
+3. **Midia** - Base para todos os tipos de mídia
+4. **Livros/Revistas/DVDs/Artigos** - Tipos específicos de mídia
+5. **Emprestimo** - Controle de empréstimos
+6. **Penalizacao** - Multas e penalizações
+7. **Autores** - Informações dos autores
+8. **Autorias** - Relacionamento entre autores e mídias
+
+### Relacionamentos
+
+- Um usuário pode ter múltiplos empréstimos
+- Uma mídia pode ter múltiplos autores
+- Uma biblioteca pode ter múltiplas mídias
+- Um empréstimo pode gerar penalizações
+
+## 🧪 Testes
+
+```bash
+# Executar todos os testes
+make test
+
+# Executar testes com cobertura
+make test-coverage
+```
+
+## 📋 Funcionalidades Especiais
+
+### Sistema de Empréstimos
+- Controle automático de disponibilidade
+- Cálculo automático de datas de devolução
+- Renovação de empréstimos
+- Controle de atrasos
+
+### Sistema de Penalizações
+- Multas automáticas por atraso
+- Bloqueio de usuários com penalizações ativas
+- Controle de valores e prazos
+
+### Dashboard e Relatórios
+- Estatísticas em tempo real
+- Gráficos de empréstimos por período
+- Rankings de livros e usuários
+- Distribuição de mídias por biblioteca
+
+## 🔧 Configuração
+
+### Variáveis de Ambiente
+
+| Variável | Descrição | Padrão |
+|----------|-----------|---------|
+| `DATABASE_URL` | String de conexão PostgreSQL | `host=localhost port=5432 user=postgres password=postgres dbname=biblioteca sslmode=disable` |
+| `PORT` | Porta do servidor | `3000` |
+| `ENVIRONMENT` | Ambiente (development/production) | `development` |
+
+### Configuração do Banco
+
+O schema do banco é criado automaticamente na primeira execução. Para customizar, edite o arquivo `database/database.go`.
+
+## 🚀 Deploy
+
+### Docker Production
+
+```bash
+# Build da imagem
+docker build -t biblioteca-api:latest .
+
+# Run do container
+docker run -d \
+  --name biblioteca-api \
+  -p 3000:3000 \
+  -e DATABASE_URL=""sua-string-de-conexao"" \
+  biblioteca-api:latest
+```
+
+### Deploy em Cloud
+
+A aplicação está preparada para deploy em:
+- Heroku
+- Railway
+- Render
+- AWS ECS
+- Google Cloud Run
+
+## 🤝 Contribuição
+
+1. Fork o projeto
+2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
+3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
+4. Push para a branch (`git push origin feature/AmazingFeature`)
+5. Abra um Pull Request
+
+## 📄 Licença
+
+Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
+
+## 📞 Suporte
+
+Para dúvidas ou problemas:
+- Abra uma issue no GitHub
+- Entre em contato através do email: [seu-email@exemplo.com]
+
+## 🏆 Status do Projeto
+
+✅ CRUD básico para todas entidades  
+✅ Sistema de empréstimos  
+✅ Controle de penalizações  
+✅ Dashboard com estatísticas  
+✅ Busca global  
+✅ Documentação completa  
+🔄 Testes unitários (em desenvolvimento)  
+⏳ Sistema de autenticação (planejado)  
+⏳ API de relatórios avançados (planejado)  
+
+---
+
+Desenvolvido com ❤️ em Go
+"
+init.sql,sql,"-- Script de inicialização para o Sistema de Biblioteca
+-- Este script cria as tabelas e insere dados de exemplo
+
+-- Criar tipos ENUM se não existir
+DO $$ BEGIN
+    CREATE TYPE MidiaTipo AS ENUM ('livro', 'revista', 'dvd', 'artigo');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- Tabela: Usuario
+CREATE TABLE IF NOT EXISTS Usuario (
+    id_usuario SERIAL PRIMARY KEY NOT NULL,
+    nome VARCHAR NOT NULL,
+    email VARCHAR,
+    endereco VARCHAR,
+    telefone VARCHAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela: Biblioteca
+CREATE TABLE IF NOT EXISTS Biblioteca (
+    id_biblioteca SERIAL PRIMARY KEY NOT NULL,
+    nome VARCHAR NOT NULL,
+    endereco VARCHAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela: Mídia
+CREATE TABLE IF NOT EXISTS Midia (
+    id_midia SERIAL PRIMARY KEY NOT NULL,
+    tipo_midia MidiaTipo NOT NULL,
+    condicao VARCHAR,
+    id_biblioteca INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_biblioteca) REFERENCES Biblioteca(id_biblioteca)
+);
+
+-- Tabela: Emprestimo
+CREATE TABLE IF NOT EXISTS Emprestimo (
+    id_emprestimo SERIAL PRIMARY KEY NOT NULL,
+    data_emprestimo DATE NOT NULL,
+    data_devolucao_prevista DATE,
+    data_devolucao DATE,
+    id_midia INT NOT NULL,
+    id_usuario INT NOT NULL,
+    status VARCHAR DEFAULT 'ativo',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_midia) REFERENCES Midia(id_midia),
+    FOREIGN KEY (id_usuario) REFERENCES Usuario(id_usuario)
+);
+
+-- Tabela: Penalizacao
+CREATE TABLE IF NOT EXISTS Penalizacao (
+    id_penalizacao SERIAL PRIMARY KEY NOT NULL,
+    descricao TEXT,
+    final_penalizacao DATE,
+    valor DECIMAL(10,2),
+    id_usuario INT,
+    id_emprestimo INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_usuario) REFERENCES Usuario(id_usuario),
+    FOREIGN KEY (id_emprestimo) REFERENCES Emprestimo(id_emprestimo)
+);
+
+-- Tabela: Livros
+CREATE TABLE IF NOT EXISTS Livros (
+    id_livro SERIAL PRIMARY KEY NOT NULL,
+    titulo VARCHAR NOT NULL,
+    ISBN VARCHAR,
+    numero_paginas INT,
+    editora VARCHAR,
+    data_publicacao DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_livro) REFERENCES Midia(id_midia)
+);
+
+-- Tabela: Revistas
+CREATE TABLE IF NOT EXISTS Revistas (
+    id_revista SERIAL PRIMARY KEY NOT NULL,
+    titulo VARCHAR NOT NULL,
+    ISSN VARCHAR,
+    periodicidade VARCHAR,
+    editora VARCHAR,
+    data_publicacao DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_revista) REFERENCES Midia(id_midia)
+);
+
+-- Tabela: DVDs
+CREATE TABLE IF NOT EXISTS DVDs (
+    id_dvd SERIAL PRIMARY KEY NOT NULL,
+    titulo VARCHAR NOT NULL,
+    ISAN VARCHAR,
+    duracao INT,
+    distribuidora VARCHAR,
+    data_lancamento DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_dvd) REFERENCES Midia(id_midia)
+);
+
+-- Tabela: Artigos
+CREATE TABLE IF NOT EXISTS Artigos (
+    id_artigo SERIAL PRIMARY KEY NOT NULL,
+    titulo VARCHAR NOT NULL,
+    DOI VARCHAR,
+    publicadora VARCHAR,
+    data_publicacao DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_artigo) REFERENCES Midia(id_midia)
+);
+
+-- Tabela: Autores
+CREATE TABLE IF NOT EXISTS Autores (
+    id_autor SERIAL PRIMARY KEY NOT NULL,
+    nome VARCHAR NOT NULL,
+    data_nascimento DATE,
+    data_falecimento DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela: Autorias
+CREATE TABLE IF NOT EXISTS Autorias (
+    id_autorias SERIAL PRIMARY KEY NOT NULL,
+    id_autor INT NOT NULL,
+    id_midia INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_autor) REFERENCES Autores(id_autor),
+    FOREIGN KEY (id_midia) REFERENCES Midia(id_midia)
+);
+
+-- Criar índices para melhor performance
+CREATE INDEX IF NOT EXISTS idx_emprestimo_usuario ON Emprestimo(id_usuario);
+CREATE INDEX IF NOT EXISTS idx_emprestimo_midia ON Emprestimo(id_midia);
+CREATE INDEX IF NOT EXISTS idx_midia_biblioteca ON Midia(id_biblioteca);
+CREATE INDEX IF NOT EXISTS idx_autorias_autor ON Autorias(id_autor);
+CREATE INDEX IF NOT EXISTS idx_autorias_midia ON Autorias(id_midia);
+CREATE INDEX IF NOT EXISTS idx_emprestimo_status ON Emprestimo(status);
+CREATE INDEX IF NOT EXISTS idx_emprestimo_data_devolucao ON Emprestimo(data_devolucao);
+
+-- Inserir dados de exemplo
+INSERT INTO Biblioteca (nome, endereco) VALUES 
+    ('Biblioteca Central', 'Av. Paulista, 1000 - São Paulo, SP'),
+    ('Biblioteca Comunitária Norte', 'Rua das Flores, 500 - São Paulo, SP'),
+    ('Biblioteca Infantil', 'Praça da Alegria, 200 - São Paulo, SP')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO Usuario (nome, email, endereco, telefone) VALUES 
+    ('João Silva', 'joao@email.com', 'Rua A, 123', '(11) 99999-1111'),
+    ('Maria Santos', 'maria@email.com', 'Rua B, 456', '(11) 99999-2222'),
+    ('Pedro Oliveira', 'pedro@email.com', 'Rua C, 789', '(11) 99999-3333'),
+    ('Ana Costa', 'ana@email.com', 'Rua D, 101', '(11) 99999-4444'),
+    ('Carlos Ferreira', 'carlos@email.com', 'Rua E, 202', '(11) 99999-5555')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO Autores (nome, data_nascimento, data_falecimento) VALUES 
+    ('Machado de Assis', '1839-06-21', '1908-09-29'),
+    ('Clarice Lispector', '1920-12-10', '1977-12-09'),
+    ('Jorge Amado', '1912-08-10', '2001-08-06'),
+    ('Graciliano Ramos', '1892-10-27', '1953-03-20'),
+    ('Érico Veríssimo', '1905-12-17', '1975-11-28'),
+    ('J.K. Rowling', '1965-07-31', NULL),
+    ('George Orwell', '1903-06-25', '1950-01-21'),
+    ('Agatha Christie', '1890-09-15', '1976-01-12')
+ON CONFLICT DO NOTHING;
+
+-- Inserir mídias (livros)
+INSERT INTO Midia (tipo_midia, condicao, id_biblioteca) VALUES 
+    ('livro', 'bom', 1),
+    ('livro', 'excelente', 1),
+    ('livro', 'regular', 2),
+    ('livro', 'bom', 1),
+    ('livro', 'excelente', 2),
+    ('livro', 'bom', 3),
+    ('livro', 'excelente', 1),
+    ('livro', 'bom', 2)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO Livros (id_livro, titulo, ISBN, numero_paginas, editora, data_publicacao) VALUES 
+    (1, 'Dom Casmurro', '978-85-359-0277-5', 256, 'Companhia das Letras', '1899-01-01'),
+    (2, 'A Hora da Estrela', '978-85-359-0123-5', 87, 'Rocco', '1977-01-01'),
+    (3, 'Gabriela, Cravo e Canela', '978-85-359-0456-7', 674, 'Companhia das Letras', '1958-01-01'),
+    (4, 'Vidas Secas', '978-85-359-0789-1', 176, 'Record', '1938-01-01'),
+    (5, 'O Tempo e o Vento', '978-85-359-0321-4', 1295, 'Globo', '1949-01-01'),
+    (6, 'Harry Potter e a Pedra Filosofal', '978-85-325-1101-4', 264, 'Rocco', '1997-06-26'),
+    (7, '1984', '978-85-359-0198-2', 374, 'Companhia das Letras', '1949-06-08'),
+    (8, 'Assassinato no Expresso Oriente', '978-85-359-0587-4', 256, 'Globo', '1934-01-01')
+ON CONFLICT DO NOTHING;
+
+-- Inserir autorias
+INSERT INTO Autorias (id_autor, id_midia) VALUES 
+    (1, 1), -- Machado de Assis - Dom Casmurro
+    (2, 2), -- Clarice Lispector - A Hora da Estrela
+    (3, 3), -- Jorge Amado - Gabriela, Cravo e Canela
+    (4, 4), -- Graciliano Ramos - Vidas Secas
+    (5, 5), -- Érico Veríssimo - O Tempo e o Vento
+    (6, 6), -- J.K. Rowling - Harry Potter
+    (7, 7), -- George Orwell - 1984
+    (8, 8)  -- Agatha Christie - Assassinato no Expresso Oriente
+ON CONFLICT DO NOTHING;
+
+-- Inserir alguns empréstimos de exemplo
+INSERT INTO Emprestimo (data_emprestimo, data_devolucao_prevista, id_midia, id_usuario, status) VALUES 
+    ('2024-01-15', '2024-01-30', 1, 1, 'ativo'),
+    ('2024-01-10', '2024-01-25', 3, 2, 'ativo'),
+    ('2024-01-05', '2024-01-20', 5, 3, 'devolvido'),
+    ('2024-01-20', '2024-02-05', 6, 4, 'ativo')
+ON CONFLICT DO NOTHING;
+
+-- Atualizar um empréstimo como devolvido
+UPDATE Emprestimo SET data_devolucao = '2024-01-18', status = 'devolvido' WHERE id_emprestimo = 3;
+
+COMMIT;
+"

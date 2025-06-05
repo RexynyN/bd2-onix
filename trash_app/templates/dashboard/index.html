@@ -1,0 +1,140 @@
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="h3">Dashboard</h1>
+        <p class="text-muted">Visão geral do sistema de biblioteca</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <i class="bi bi-people fs-1 mb-2"></i>
+                <h3 id="total-usuarios">{{.Data.TotalUsuarios}}</h3>
+                <p class="mb-0">Usuários Cadastrados</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <i class="bi bi-collection fs-1 mb-2"></i>
+                <h3 id="total-midias">{{.Data.TotalMidias}}</h3>
+                <p class="mb-0">Mídias Disponíveis</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <i class="bi bi-arrow-repeat fs-1 mb-2"></i>
+                <h3 id="emprestimos-ativos">{{.Data.EmprestimosAtivos}}</h3>
+                <p class="mb-0">Empréstimos Ativos</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card">
+            <div class="card-body text-center">
+                <i class="bi bi-exclamation-triangle fs-1 mb-2"></i>
+                <h3 id="penalizacoes">{{.Data.Penalizacoes}}</h3>
+                <p class="mb-0">Penalizações Ativas</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Empréstimos Recentes</h5>
+            </div>
+            <div class="card-body">
+                <div id="emprestimos-recentes">
+                    <div class="text-center py-3">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Mídias Mais Emprestadas</h5>
+            </div>
+            <div class="card-body">
+                <div id="midias-populares">
+                    <div class="text-center py-3">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardData();
+});
+
+async function loadDashboardData() {
+    try {
+        // Carregar estatísticas atualizadas
+        const stats = await apiRequest('/api/dashboard');
+        document.getElementById('total-usuarios').textContent = stats.TotalUsuarios;
+        document.getElementById('total-midias').textContent = stats.TotalMidias;
+        document.getElementById('emprestimos-ativos').textContent = stats.EmprestimosAtivos;
+        document.getElementById('penalizacoes').textContent = stats.Penalizacoes;
+
+        // Carregar empréstimos recentes
+        const emprestimos = await apiRequest('/api/emprestimos');
+        const emprestimosContainer = document.getElementById('emprestimos-recentes');
+
+        if (emprestimos.length === 0) {
+            emprestimosContainer.innerHTML = '<p class="text-muted text-center">Nenhum empréstimo encontrado</p>';
+        } else {
+            const recentEmprestimos = emprestimos.slice(0, 5);
+            emprestimosContainer.innerHTML = recentEmprestimos.map(emp => `
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                    <div>
+                        <strong>${emp.titulo_midia}</strong><br>
+                        <small class="text-muted">${emp.nome_usuario}</small>
+                    </div>
+                    <span class="badge bg-${emp.status === 'ativo' ? 'success' : emp.status === 'atrasado' ? 'danger' : 'secondary'}">
+                        ${emp.status}
+                    </span>
+                </div>
+            `).join('');
+        }
+
+        // Carregar mídias (simulação de popularidade)
+        const midias = await apiRequest('/api/midias');
+        const midiasContainer = document.getElementById('midias-populares');
+
+        if (midias.length === 0) {
+            midiasContainer.innerHTML = '<p class="text-muted text-center">Nenhuma mídia encontrada</p>';
+        } else {
+            const popularMidias = midias.slice(0, 5);
+            midiasContainer.innerHTML = popularMidias.map(midia => `
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                    <div>
+                        <strong>${midia.titulo || 'Sem título'}</strong><br>
+                        <small class="text-muted">${midia.tipo_midia}</small>
+                    </div>
+                    <span class="badge bg-primary">${midia.biblioteca_nome}</span>
+                </div>
+            `).join('');
+        }
+
+    } catch (error) {
+        console.error('Erro ao carregar dados do dashboard:', error);
+    }
+}
+</script>
