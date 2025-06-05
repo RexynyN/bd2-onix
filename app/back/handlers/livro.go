@@ -272,7 +272,7 @@ func (h *LivroHandler) CreateLivro(c *fiber.Ctx) error {
 		INSERT INTO Midia (tipo_midia, condicao, id_biblioteca, created_at, updated_at) 
 		VALUES ($1, $2, $3, $4, $5) 
 		RETURNING id_midia`,
-		models.Livro, req.Condicao, req.IDBiblioteca, now, now).Scan(&midiaID)
+		models.LivroTipo, req.Condicao, req.IDBiblioteca, now, now).Scan(&midiaID)
 
 	if err != nil {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Erro ao criar mídia", err)

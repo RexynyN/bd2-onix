@@ -12,7 +12,7 @@ type Config struct {
 
 func LoadConfig() *Config {
 	return &Config{
-		DatabaseURL: getEnv("DATABASE_URL", "host=localhost port=5432 user=postgres password=postgres dbname=biblioteca sslmode=disable"),
+		DatabaseURL: getEnv("DATABASE_URL", "host=localhost port=5432 user=super_user password=carimboatrasado dbname=onixlibrary sslmode=disable"),
 		Port:        getEnv("PORT", "3000"),
 		Environment: getEnv("ENVIRONMENT", "development"),
 	}

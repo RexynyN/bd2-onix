@@ -10,10 +10,10 @@ import (
 type MidiaTipo string
 
 const (
-	Livro   MidiaTipo = "livro"
-	Revista MidiaTipo = "revista"
-	DVD     MidiaTipo = "dvd"
-	Artigo  MidiaTipo = "artigo"
+	LivroTipo   MidiaTipo = "livro"
+	RevistaTipo MidiaTipo = "revista"
+	DVDTipo     MidiaTipo = "dvd"
+	ArtigoTipo  MidiaTipo = "artigo"
 )
 
 func (mt *MidiaTipo) Scan(value interface{}) error {

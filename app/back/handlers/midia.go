@@ -169,22 +169,22 @@ func (h *MidiaHandler) GetMidia(c *fiber.Ctx) error {
 
 	// Busca detalhes específicos baseado no tipo
 	switch midia.TipoMidia {
-	case models.Livro:
+	case models.LivroTipo:
 		livro, err := h.getLivroDetails(id)
 		if err == nil {
 			midia.Livro = livro
 		}
-	case models.Revista:
+	case models.RevistaTipo:
 		revista, err := h.getRevistaDetails(id)
 		if err == nil {
 			midia.Revista = revista
 		}
-	case models.DVD:
+	case models.DVDTipo:
 		dvd, err := h.getDVDDetails(id)
 		if err == nil {
 			midia.DVD = dvd
 		}
-	case models.Artigo:
+	case models.ArtigoTipo:
 		artigo, err := h.getArtigoDetails(id)
 		if err == nil {
 			midia.Artigo = artigo
@@ -341,13 +341,13 @@ func (h *MidiaHandler) DeleteMidia(c *fiber.Ctx) error {
 	}
 
 	switch tipoMidia {
-	case models.Livro:
+	case models.LivroTipo:
 		_, err = tx.Exec("DELETE FROM Livros WHERE id_livro = $1", id)
-	case models.Revista:
+	case models.RevistaTipo:
 		_, err = tx.Exec("DELETE FROM Revistas WHERE id_revista = $1", id)
-	case models.DVD:
+	case models.DVDTipo:
 		_, err = tx.Exec("DELETE FROM DVDs WHERE id_dvd = $1", id)
-	case models.Artigo:
+	case models.ArtigoTipo:
 		_, err = tx.Exec("DELETE FROM Artigos WHERE id_artigo = $1", id)
 	}
 

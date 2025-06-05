@@ -318,19 +318,3 @@ func (h *AutorHandler) GetAutorObras(c *fiber.Ctx) error {
 
 	return c.JSON(utils.SuccessResponse(obras))
 }
-
-// Helper function para join de strings (reusada)
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	if len(strs) == 1 {
-		return strs[0]
-	}
-
-	result := strs[0]
-	for _, s := range strs[1:] {
-		result += sep + s
-	}
-	return result
-}
