@@ -24,15 +24,20 @@ CREATE TABLE Biblioteca (
     nome VARCHAR NOT NULL,
     endereco VARCHAR
 );
- 	
+CREATE TABLE Estoque(
+    id_estoque SERIAL PRIMARY KEY NOT NULL,
+    condicao VARCHAR,
+    id_titulo INT,
+    id_biblioteca INT,
+    FOREIGN KEY (id_titulo) REFERENCES Titulo(id_titulo)
+    FOREIGN KEY (id_biblioteca) REFERENCES Biblioteca(id_biblioteca)
+);
+
 -- Tabela: Mídia
 CREATE TYPE MidiaTipo AS ENUM ('livro', 'revista', 'dvd', 'artigo');
-CREATE TABLE Midia (
-    id_midia SERIAL PRIMARY KEY NOT NULL,
+CREATE TABLE Titulo (
+    id_titulo SERIAL PRIMARY KEY NOT NULL,
     tipo_midia MidiaTipo NOT NULL,
-    condicao VARCHAR,
-    id_biblioteca INT,
-    FOREIGN KEY (id_biblioteca) REFERENCES Biblioteca(id_biblioteca)
 );
 
 -- Tabela: Emprestimo
@@ -41,9 +46,9 @@ CREATE TABLE Emprestimo (
     data_emprestimo DATE NOT NULL,
     data_devolucao_prevista DATE,
     data_devolucao DATE,
-    id_midia INT NOT NULL,
+    id_estoque INT NOT NULL,
     id_usuario INT NOT NULL,
-    FOREIGN KEY (id_midia) REFERENCES Midia(id_midia),
+    FOREIGN KEY (id_estoque) REFERENCES Estoque(id_estoque),
     FOREIGN KEY (id_usuario) REFERENCES Usuario(id_usuario)
 );
 
@@ -66,7 +71,7 @@ CREATE TABLE Livros (
     numero_paginas INT,
     editora VARCHAR,
     data_publicacao DATE,
-    FOREIGN KEY (id_livro) REFERENCES Midia(id_midia)
+    FOREIGN KEY (id_livro) REFERENCES Titulo(id_titulo)
 );
 
 -- Tabela: Revistas
@@ -77,7 +82,7 @@ CREATE TABLE Revistas (
     periodicidade VARCHAR,
     editora VARCHAR,
     data_publicacao DATE,
-    FOREIGN KEY (id_revista) REFERENCES Midia(id_midia)
+    FOREIGN KEY (id_revista) REFERENCES Titulo(id_titulo)
 );
 
 -- Tabela: DVDs
@@ -88,7 +93,7 @@ CREATE TABLE DVDs (
     duracao INT,
     distribuidora VARCHAR,
     data_lancamento DATE,
-    FOREIGN KEY (id_dvd) REFERENCES Midia(id_midia)
+    FOREIGN KEY (id_dvd) REFERENCES Titulo(id_titulo)
 );
 
 -- Tabela: Artigos
@@ -98,7 +103,7 @@ CREATE TABLE Artigos (
     DOI VARCHAR,
     publicadora VARCHAR,
     data_publicacao DATE,
-    FOREIGN KEY (id_artigo) REFERENCES Midia(id_midia)
+    FOREIGN KEY (id_artigo) REFERENCES Titulo(id_titulo)
 );
 
 -- Tabela: Autores
@@ -113,9 +118,9 @@ CREATE TABLE Autores (
 CREATE TABLE Autorias (
     id_autorias SERIAL PRIMARY KEY NOT NULL,
     id_autor INT NOT NULL,
-    id_midia INT NOT NULL,
+    id_titulo INT NOT NULL,
     FOREIGN KEY (id_autor) REFERENCES Autores(id_autor),
-    FOREIGN KEY (id_midia) REFERENCES Midia(id_midia)
+    FOREIGN KEY (id_titulo) REFERENCES Titulo(id_titulo)
 );
 
 
@@ -151,7 +156,7 @@ SELECT COUNT(*) FROM Penalizacao;
 -- 00:251
 SELECT e.id_emprestimo, e.data_emprestimo, m.tipo_midia, u.nome
 FROM Emprestimo e
-JOIN Midia m ON e.id_midia = m.id_midia
+JOIN Titulo m ON e.id_titulo = m.id_titulo
 JOIN Usuario u ON e.id_usuario = u.id_usuario
 WHERE e.id_usuario = 42
   AND e.data_emprestimo >= CURRENT_DATE - INTERVAL '6 months'
@@ -160,7 +165,7 @@ ORDER BY e.data_emprestimo DESC;
 -- 01:080
 SELECT b.nome AS biblioteca, COUNT(e.id_emprestimo) AS total_emprestimos
 FROM Emprestimo e
-JOIN Midia m ON e.id_midia = m.id_midia
+JOIN Titulo m ON e.id_titulo = m.id_titulo
 JOIN Biblioteca b ON m.id_biblioteca = b.id_biblioteca
 WHERE e.data_emprestimo >= CURRENT_DATE - INTERVAL '1 year'
 GROUP BY b.nome
@@ -179,7 +184,7 @@ ORDER BY total_penalizacoes DESC;
 SELECT m.tipo_midia,
        AVG(e.data_devolucao - e.data_emprestimo) AS media_dias_emprestimo
 FROM Emprestimo e
-JOIN Midia m ON e.id_midia = m.id_midia
+JOIN Titulo m ON e.id_titulo = m.id_titulo
 WHERE e.data_devolucao IS NOT NULL
 GROUP BY m.tipo_midia;
 
@@ -187,8 +192,8 @@ GROUP BY m.tipo_midia;
 -- 02.283
 SELECT DISTINCT a.nome AS autor, m.tipo_midia
 FROM Emprestimo e
-JOIN Midia m ON e.id_midia = m.id_midia
-JOIN Autorias au ON m.id_midia = au.id_midia
+JOIN Titulo m ON e.id_titulo = m.id_titulo
+JOIN Autorias au ON m.id_titulo = au.id_titulo
 JOIN Autores a ON au.id_autor = a.id_autor
 WHERE e.data_emprestimo >= '2024-01-01';
 
@@ -199,12 +204,12 @@ WHERE e.data_emprestimo >= '2024-01-01';
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ÍNDICES SIMPLES
-CREATE INDEX idx_midia_id_biblioteca ON Midia(id_biblioteca);
+CREATE INDEX idx_midia_id_biblioteca ON Titulo(id_biblioteca);
 CREATE INDEX idx_emprestimo_id_usuario ON Emprestimo(id_usuario);
-CREATE INDEX idx_emprestimo_id_midia ON Emprestimo(id_midia);
+CREATE INDEX idx_emprestimo_id_midia ON Emprestimo(id_titulo);
 CREATE INDEX idx_penalizacao_id_usuario ON Penalizacao(id_usuario);
 CREATE INDEX idx_autorias_id_autor ON Autorias(id_autor);
-CREATE INDEX idx_autorias_id_midia ON Autorias(id_midia);
+CREATE INDEX idx_autorias_id_midia ON Autorias(id_titulo);
 CREATE INDEX idx_usuario_email ON Usuario(email);
 CREATE INDEX idx_livros_titulo ON Livros(titulo);
 CREATE INDEX idx_revistas_titulo ON Revistas(titulo);
@@ -228,7 +233,7 @@ CREATE INDEX idx_artigos_trgm ON artigos USING gin (titulo gin_trgm_ops);
 -- 00.053
 SELECT e.id_emprestimo, e.data_emprestimo, m.tipo_midia, u.nome
 FROM Emprestimo e
-JOIN Midia m ON e.id_midia = m.id_midia
+JOIN Titulo m ON e.id_titulo = m.id_titulo
 JOIN Usuario u ON e.id_usuario = u.id_usuario
 WHERE e.id_usuario = 42
   AND e.data_emprestimo >= CURRENT_DATE - INTERVAL '6 months'
@@ -239,7 +244,7 @@ ORDER BY e.data_emprestimo DESC;
 -- 00.817
 SELECT b.nome AS biblioteca, COUNT(e.id_emprestimo) AS total_emprestimos
 FROM Emprestimo e
-JOIN Midia m ON e.id_midia = m.id_midia
+JOIN Titulo m ON e.id_titulo = m.id_titulo
 JOIN Biblioteca b ON m.id_biblioteca = b.id_biblioteca
 WHERE e.data_emprestimo >= CURRENT_DATE - INTERVAL '1 year'
 GROUP BY b.nome
@@ -262,7 +267,7 @@ ORDER BY total_penalizacoes DESC;
 SELECT m.tipo_midia,
        AVG(e.data_devolucao - e.data_emprestimo) AS media_dias_emprestimo
 FROM Emprestimo e
-JOIN Midia m ON e.id_midia = m.id_midia
+JOIN Titulo m ON e.id_titulo = m.id_titulo
 WHERE e.data_devolucao IS NOT NULL
 GROUP BY m.tipo_midia;
 
@@ -272,7 +277,7 @@ GROUP BY m.tipo_midia;
 -- 01.703
 SELECT DISTINCT a.nome AS autor, m.tipo_midia
 FROM Emprestimo e
-JOIN Midia m ON e.id_midia = m.id_midia
-JOIN Autorias au ON m.id_midia = au.id_midia
+JOIN Titulo m ON e.id_titulo = m.id_titulo
+JOIN Autorias au ON m.id_titulo = au.id_titulo
 JOIN Autores a ON au.id_autor = a.id_autor
 WHERE e.data_emprestimo >= '2024-01-01';
