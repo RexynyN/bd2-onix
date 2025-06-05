@@ -19,7 +19,7 @@ autorias_service = BaseService("Autorias", "id_autorias")
 async def create_autor(autor: AutorCreate):
     """Create a new author"""
     try:
-        author_data = autor.dict(exclude_unset=True)
+        author_data = autor.model_dump(exclude_unset=True)
         author_id = autor_service.create(author_data)
         
         if not author_id:
