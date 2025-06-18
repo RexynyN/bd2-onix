@@ -1,7 +1,7 @@
 import axios from "axios"
 
 // Configure axios base URL - adjust this to your API URL
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8765/api/v1"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -25,11 +25,6 @@ export interface Biblioteca {
   endereco: string
 }
 
-export interface Titulo {
-  id_titulo: number
-  tipo_midia: "livro" | "revista" | "dvd" | "artigo"
-}
-
 export interface Livro {
   id_livro: number
   titulo: string
@@ -37,7 +32,6 @@ export interface Livro {
   numero_paginas: number
   editora: string
   data_publicacao: string
-  id_titulo: number
 }
 
 export interface Revista {
@@ -47,7 +41,6 @@ export interface Revista {
   periodicidade: string
   editora: string
   data_publicacao: string
-  id_titulo: number
 }
 
 export interface DVD {
@@ -57,7 +50,6 @@ export interface DVD {
   duracao: number
   distribuidora: string
   data_lancamento: string
-  id_titulo: number
 }
 
 export interface Artigo {
@@ -66,7 +58,6 @@ export interface Artigo {
   DOI: string
   publicadora: string
   data_publicacao: string
-  id_titulo: number
 }
 
 export interface Autor {
@@ -74,12 +65,6 @@ export interface Autor {
   nome: string
   data_nascimento: string
   data_falecimento?: string
-}
-
-export interface Autoria {
-  id_autorias: number
-  id_autor: number
-  id_titulo: number
 }
 
 export interface Estoque {
@@ -144,14 +129,6 @@ export const bibliotecasAPI = {
   delete: (id: number) => api.delete<{ message: string }>(`/bibliotecas/${id}`),
 }
 
-export const titulosAPI = {
-  getAll: (skip = 0, limit = 100) => api.get<Titulo[]>(`/estoque/?skip=${skip}&limit=${limit}`),
-  getById: (id: number) => api.get<Titulo>(`/estoque/${id}`),
-  create: (data: { tipo_midia: string }) => api.post<Titulo>("/estoque/", data),
-  update: (id: number, data: Partial<Titulo>) => api.put<Titulo>(`/estoque/${id}`, data),
-  delete: (id: number) => api.delete<{ message: string }>(`/estoque/${id}`),
-}
-
 export const livrosAPI = {
   getAll: (skip = 0, limit = 100) => api.get<Livro[]>(`/livros/?skip=${skip}&limit=${limit}`),
   getById: (id: number) => api.get<Livro>(`/livros/${id}`),
@@ -199,11 +176,6 @@ export const autoresAPI = {
   update: (id: number, data: Partial<Omit<Autor, "id_autor">>) => api.put<Autor>(`/autores/${id}`, data),
   delete: (id: number) => api.delete<{ message: string }>(`/autores/${id}`),
   search: (q: string) => api.get<Autor[]>(`/autores/search/?q=${encodeURIComponent(q)}`),
-}
-
-export const autoriasAPI = {
-  create: (data: { id_autor: number; id_titulo: number }) => api.post<Autoria>("/autorias/", data),
-  delete: (id: number) => api.delete<{ message: string }>(`/autorias/${id}`),
 }
 
 export const estoqueAPI = {
