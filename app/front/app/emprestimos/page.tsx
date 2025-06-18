@@ -1,5 +1,7 @@
 "use client"
 
+import { Calendar } from "@/components/ui/calendar"
+
 import type React from "react"
 
 import { useState, useEffect } from "react"
@@ -22,19 +24,14 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
-
-interface Emprestimo {
-  id_emprestimo: number
-  data_emprestimo: string
-  data_devolucao_prevista: string
-  data_devolucao?: string
-  id_estoque: number
-  id_usuario: number
-  usuario_nome: string
-  titulo_midia: string
-  tipo_midia: string
-  status: "ativo" | "devolvido" | "vencido"
-}
+import {
+  emprestimosAPI,
+  usuariosAPI,
+  estoqueAPI,
+  type EmprestimoDetalhado,
+  type Usuario,
+  type Estoque,
+} from "@/lib/api"
 
 const statusColors = {
   ativo: "bg-blue-100 text-blue-800",
@@ -49,12 +46,22 @@ const statusIcons = {
 }
 
 export default function EmprestimosPage() {
-  const [emprestimos, setEmprestimos] = useState<Emprestimo[]>([])
+  const [emprestimos, setEmprestimos] = useState<EmprestimoDetalhado[]>([])
+  const [usuarios, setUsuarios] = useState<Usuario[]>([])
+  const [estoque, setEstoque] = useState<Estoque[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("todos")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isDevolucaoDialogOpen, setIsDevolucaoDialogOpen] = useState(false)
-  const [selectedEmprestimo, setSelectedEmprestimo] = useState<Emprestimo | null>(null)
+  const [selectedEmprestimo, setSelectedEmprestimo] = useState<EmprestimoDetalhado | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [stats, setStats] = useState({
+    total: 0,
+    ativos: 0,
+    vencidos: 0,
+    devolvidos: 0,
+  })
   const [formData, setFormData] = useState({
     id_usuario: "",
     id_estoque: "",
@@ -64,108 +71,127 @@ export default function EmprestimosPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    // Simular carregamento de dados
-    const hoje = new Date()
-    const ontem = new Date(hoje)
-    ontem.setDate(hoje.getDate() - 1)
-    const semanaPassada = new Date(hoje)
-    semanaPassada.setDate(hoje.getDate() - 7)
-    const proximaSemana = new Date(hoje)
-    proximaSemana.setDate(hoje.getDate() + 7)
-
-    setEmprestimos([
-      {
-        id_emprestimo: 1,
-        data_emprestimo: semanaPassada.toISOString().split("T")[0],
-        data_devolucao_prevista: ontem.toISOString().split("T")[0],
-        id_estoque: 1,
-        id_usuario: 1,
-        usuario_nome: "João Silva",
-        titulo_midia: "Dom Casmurro",
-        tipo_midia: "livro",
-        status: "vencido",
-      },
-      {
-        id_emprestimo: 2,
-        data_emprestimo: hoje.toISOString().split("T")[0],
-        data_devolucao_prevista: proximaSemana.toISOString().split("T")[0],
-        id_estoque: 2,
-        id_usuario: 2,
-        usuario_nome: "Maria Santos",
-        titulo_midia: "National Geographic Brasil",
-        tipo_midia: "revista",
-        status: "ativo",
-      },
-      {
-        id_emprestimo: 3,
-        data_emprestimo: "2024-01-10",
-        data_devolucao_prevista: "2024-01-17",
-        data_devolucao: "2024-01-16",
-        id_estoque: 3,
-        id_usuario: 3,
-        usuario_nome: "Pedro Oliveira",
-        titulo_midia: "Cidade de Deus",
-        tipo_midia: "dvd",
-        status: "devolvido",
-      },
-    ])
+    fetchData()
   }, [])
 
+  const fetchData = async () => {
+    try {
+      setLoading(true)
+      const [emprestimosRes, usuariosRes, estoqueRes, relatorioRes] = await Promise.all([
+        emprestimosAPI.getEmAndamento(),
+        usuariosAPI.getAll(0, 1000),
+        estoqueAPI.getAll(0, 1000),
+        emprestimosAPI.getRelatorio(),
+      ])
+
+      setEmprestimos(emprestimosRes.data)
+      setUsuarios(usuariosRes.data)
+      setEstoque(estoqueRes.data)
+      setStats({
+        total: relatorioRes.data.total_emprestimos,
+        ativos: relatorioRes.data.emprestimos_em_andamento,
+        vencidos: relatorioRes.data.emprestimos_vencidos,
+        devolvidos: relatorioRes.data.emprestimos_devolvidos,
+      })
+    } catch (error) {
+      console.error("Error fetching data:", error)
+      toast({
+        title: "Erro ao carregar dados",
+        description: "Não foi possível carregar os dados dos empréstimos.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getEmprestimoStatus = (emprestimo: EmprestimoDetalhado): "ativo" | "devolvido" | "vencido" => {
+    if (emprestimo.data_devolucao) {
+      return "devolvido"
+    }
+
+    const hoje = new Date()
+    const dataPrevista = new Date(emprestimo.data_devolucao_prevista)
+
+    if (hoje > dataPrevista) {
+      return "vencido"
+    }
+
+    return "ativo"
+  }
+
   const filteredEmprestimos = emprestimos.filter((emprestimo) => {
+    const status = getEmprestimoStatus(emprestimo)
     const matchesSearch =
-      emprestimo.usuario_nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emprestimo.titulo_midia.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === "todos" || emprestimo.status === statusFilter
+      emprestimo.usuario.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emprestimo.item_titulo.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesStatus = statusFilter === "todos" || status === statusFilter
     return matchesSearch && matchesStatus
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitting(true)
 
-    const newEmprestimo: Emprestimo = {
-      id_emprestimo: Math.max(...emprestimos.map((e) => e.id_emprestimo)) + 1,
-      data_emprestimo: formData.data_emprestimo,
-      data_devolucao_prevista: formData.data_devolucao_prevista,
-      id_estoque: Number.parseInt(formData.id_estoque),
-      id_usuario: Number.parseInt(formData.id_usuario),
-      usuario_nome: "Usuário " + formData.id_usuario, // Simulado
-      titulo_midia: "Mídia " + formData.id_estoque, // Simulado
-      tipo_midia: "livro", // Simulado
-      status: "ativo",
+    try {
+      const emprestimoData = {
+        data_emprestimo: formData.data_emprestimo,
+        data_devolucao_prevista: formData.data_devolucao_prevista,
+        id_estoque: Number.parseInt(formData.id_estoque),
+        id_usuario: Number.parseInt(formData.id_usuario),
+      }
+
+      await emprestimosAPI.create(emprestimoData)
+
+      toast({
+        title: "Empréstimo criado",
+        description: "Novo empréstimo foi registrado com sucesso.",
+      })
+
+      setIsDialogOpen(false)
+      setFormData({ id_usuario: "", id_estoque: "", data_emprestimo: "", data_devolucao_prevista: "" })
+
+      // Refresh data
+      fetchData()
+    } catch (error) {
+      console.error("Error creating emprestimo:", error)
+      toast({
+        title: "Erro ao criar empréstimo",
+        description: "Não foi possível criar o empréstimo. Verifique se o item está disponível.",
+        variant: "destructive",
+      })
+    } finally {
+      setSubmitting(false)
     }
-
-    setEmprestimos([...emprestimos, newEmprestimo])
-    toast({
-      title: "Empréstimo criado",
-      description: "Novo empréstimo foi registrado com sucesso.",
-    })
-
-    setIsDialogOpen(false)
-    setFormData({ id_usuario: "", id_estoque: "", data_emprestimo: "", data_devolucao_prevista: "" })
   }
 
-  const handleDevolucao = () => {
+  const handleDevolucao = async () => {
     if (!selectedEmprestimo) return
 
-    const hoje = new Date().toISOString().split("T")[0]
-    setEmprestimos(
-      emprestimos.map((e) =>
-        e.id_emprestimo === selectedEmprestimo.id_emprestimo
-          ? { ...e, data_devolucao: hoje, status: "devolvido" as const }
-          : e,
-      ),
-    )
+    try {
+      await emprestimosAPI.devolver(selectedEmprestimo.id_emprestimo)
 
-    toast({
-      title: "Devolução registrada",
-      description: "A devolução foi registrada com sucesso.",
-    })
+      toast({
+        title: "Devolução registrada",
+        description: "A devolução foi registrada com sucesso.",
+      })
 
-    setIsDevolucaoDialogOpen(false)
-    setSelectedEmprestimo(null)
+      setIsDevolucaoDialogOpen(false)
+      setSelectedEmprestimo(null)
+
+      // Refresh data
+      fetchData()
+    } catch (error) {
+      console.error("Error returning emprestimo:", error)
+      toast({
+        title: "Erro ao registrar devolução",
+        description: "Não foi possível registrar a devolução. Tente novamente.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const openDevolucaoDialog = (emprestimo: Emprestimo) => {
+  const openDevolucaoDialog = (emprestimo: EmprestimoDetalhado) => {
     setSelectedEmprestimo(emprestimo)
     setIsDevolucaoDialogOpen(true)
   }
@@ -180,6 +206,25 @@ export default function EmprestimosPage() {
     const diffTime = hoje.getTime() - prevista.getTime()
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
     return diffDays > 0 ? diffDays : 0
+  }
+
+  if (loading) {
+    return (
+      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex items-center gap-4">
+          <SidebarTrigger />
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Empréstimos</h2>
+            <p className="text-muted-foreground">Carregando...</p>
+          </div>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">Carregando empréstimos...</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -208,29 +253,47 @@ export default function EmprestimosPage() {
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="id_usuario" className="text-right">
-                    Usuário ID
+                    Usuário
                   </Label>
-                  <Input
-                    id="id_usuario"
-                    type="number"
+                  <Select
                     value={formData.id_usuario}
-                    onChange={(e) => setFormData({ ...formData, id_usuario: e.target.value })}
-                    className="col-span-3"
+                    onValueChange={(value) => setFormData({ ...formData, id_usuario: value })}
                     required
-                  />
+                    disabled={submitting}
+                  >
+                    <SelectTrigger className="col-span-3">
+                      <SelectValue placeholder="Selecione o usuário" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {usuarios.map((usuario) => (
+                        <SelectItem key={usuario.id_usuario} value={usuario.id_usuario.toString()}>
+                          {usuario.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="id_estoque" className="text-right">
-                    Estoque ID
+                    Item do Estoque
                   </Label>
-                  <Input
-                    id="id_estoque"
-                    type="number"
+                  <Select
                     value={formData.id_estoque}
-                    onChange={(e) => setFormData({ ...formData, id_estoque: e.target.value })}
-                    className="col-span-3"
+                    onValueChange={(value) => setFormData({ ...formData, id_estoque: value })}
                     required
-                  />
+                    disabled={submitting}
+                  >
+                    <SelectTrigger className="col-span-3">
+                      <SelectValue placeholder="Selecione o item" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {estoque.map((item) => (
+                        <SelectItem key={item.id_estoque} value={item.id_estoque.toString()}>
+                          ID: {item.id_estoque} - Título: {item.id_titulo} ({item.condicao})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="data_emprestimo" className="text-right">
@@ -243,6 +306,7 @@ export default function EmprestimosPage() {
                     onChange={(e) => setFormData({ ...formData, data_emprestimo: e.target.value })}
                     className="col-span-3"
                     required
+                    disabled={submitting}
                   />
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
@@ -256,12 +320,13 @@ export default function EmprestimosPage() {
                     onChange={(e) => setFormData({ ...formData, data_devolucao_prevista: e.target.value })}
                     className="col-span-3"
                     required
+                    disabled={submitting}
                   />
                 </div>
               </div>
               <DialogFooter>
-                <Button type="submit" className="onix-gradient">
-                  Registrar Empréstimo
+                <Button type="submit" className="onix-gradient" disabled={submitting}>
+                  {submitting ? "Registrando..." : "Registrar Empréstimo"}
                 </Button>
               </DialogFooter>
             </form>
@@ -270,14 +335,23 @@ export default function EmprestimosPage() {
       </div>
 
       {/* Estatísticas rápidas */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total de Empréstimos</CardTitle>
+            <Calendar className="h-4 w-4 text-purple-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.total}</div>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Empréstimos Ativos</CardTitle>
             <Clock className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{emprestimos.filter((e) => e.status === "ativo").length}</div>
+            <div className="text-2xl font-bold">{stats.ativos}</div>
           </CardContent>
         </Card>
         <Card>
@@ -286,20 +360,16 @@ export default function EmprestimosPage() {
             <AlertTriangle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              {emprestimos.filter((e) => e.status === "vencido").length}
-            </div>
+            <div className="text-2xl font-bold text-red-600">{stats.vencidos}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Devoluções do Mês</CardTitle>
+            <CardTitle className="text-sm font-medium">Devoluções</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {emprestimos.filter((e) => e.status === "devolvido").length}
-            </div>
+            <div className="text-2xl font-bold text-green-600">{stats.devolvidos}</div>
           </CardContent>
         </Card>
       </div>
@@ -307,7 +377,7 @@ export default function EmprestimosPage() {
       <Card>
         <CardHeader>
           <CardTitle>Lista de Empréstimos</CardTitle>
-          <CardDescription>{emprestimos.length} empréstimos registrados</CardDescription>
+          <CardDescription>{emprestimos.length} empréstimos em andamento</CardDescription>
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <Search className="w-4 h-4 text-muted-foreground" />
@@ -332,66 +402,76 @@ export default function EmprestimosPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Usuário</TableHead>
-                <TableHead>Mídia</TableHead>
-                <TableHead>Empréstimo</TableHead>
-                <TableHead>Devolução Prevista</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredEmprestimos.map((emprestimo) => {
-                const StatusIcon = statusIcons[emprestimo.status]
-                const diasAtraso =
-                  emprestimo.status === "vencido" ? getDaysOverdue(emprestimo.data_devolucao_prevista) : 0
+          {emprestimos.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Clock className="mx-auto h-12 w-12 mb-4 opacity-50" />
+              <p>Nenhum empréstimo em andamento.</p>
+              <p className="text-sm">Clique em "Novo Empréstimo" para começar.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Usuário</TableHead>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Biblioteca</TableHead>
+                  <TableHead>Empréstimo</TableHead>
+                  <TableHead>Devolução Prevista</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredEmprestimos.map((emprestimo) => {
+                  const status = getEmprestimoStatus(emprestimo)
+                  const StatusIcon = statusIcons[status]
+                  const diasAtraso = status === "vencido" ? getDaysOverdue(emprestimo.data_devolucao_prevista) : 0
 
-                return (
-                  <TableRow key={emprestimo.id_emprestimo}>
-                    <TableCell className="font-medium">{emprestimo.id_emprestimo}</TableCell>
-                    <TableCell>{emprestimo.usuario_nome}</TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{emprestimo.titulo_midia}</div>
-                        <div className="text-sm text-muted-foreground">{emprestimo.tipo_midia}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{formatDate(emprestimo.data_emprestimo)}</TableCell>
-                    <TableCell>
-                      <div>
-                        {formatDate(emprestimo.data_devolucao_prevista)}
-                        {diasAtraso > 0 && (
-                          <div className="text-xs text-red-600 font-medium">{diasAtraso} dia(s) de atraso</div>
+                  return (
+                    <TableRow key={emprestimo.id_emprestimo}>
+                      <TableCell className="font-medium">{emprestimo.id_emprestimo}</TableCell>
+                      <TableCell>{emprestimo.usuario.nome}</TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{emprestimo.item_titulo}</div>
+                          <div className="text-sm text-muted-foreground capitalize">{emprestimo.tipo_midia}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{emprestimo.biblioteca}</TableCell>
+                      <TableCell>{formatDate(emprestimo.data_emprestimo)}</TableCell>
+                      <TableCell>
+                        <div>
+                          {formatDate(emprestimo.data_devolucao_prevista)}
+                          {diasAtraso > 0 && (
+                            <div className="text-xs text-red-600 font-medium">{diasAtraso} dia(s) de atraso</div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={statusColors[status]}>
+                          <StatusIcon className="w-3 h-3 mr-1" />
+                          {status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {status === "ativo" || status === "vencido" ? (
+                          <Button variant="outline" size="sm" onClick={() => openDevolucaoDialog(emprestimo)}>
+                            <CheckCircle className="w-4 h-4 mr-1" />
+                            Devolver
+                          </Button>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">
+                            Devolvido em {emprestimo.data_devolucao && formatDate(emprestimo.data_devolucao)}
+                          </span>
                         )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={statusColors[emprestimo.status]}>
-                        <StatusIcon className="w-3 h-3 mr-1" />
-                        {emprestimo.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {emprestimo.status === "ativo" || emprestimo.status === "vencido" ? (
-                        <Button variant="outline" size="sm" onClick={() => openDevolucaoDialog(emprestimo)}>
-                          <CheckCircle className="w-4 h-4 mr-1" />
-                          Devolver
-                        </Button>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">
-                          Devolvido em {emprestimo.data_devolucao && formatDate(emprestimo.data_devolucao)}
-                        </span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -406,10 +486,13 @@ export default function EmprestimosPage() {
             <div className="py-4">
               <div className="space-y-2">
                 <p>
-                  <strong>Usuário:</strong> {selectedEmprestimo.usuario_nome}
+                  <strong>Usuário:</strong> {selectedEmprestimo.usuario.nome}
                 </p>
                 <p>
-                  <strong>Mídia:</strong> {selectedEmprestimo.titulo_midia}
+                  <strong>Item:</strong> {selectedEmprestimo.item_titulo}
+                </p>
+                <p>
+                  <strong>Biblioteca:</strong> {selectedEmprestimo.biblioteca}
                 </p>
                 <p>
                   <strong>Data do Empréstimo:</strong> {formatDate(selectedEmprestimo.data_emprestimo)}
@@ -417,7 +500,7 @@ export default function EmprestimosPage() {
                 <p>
                   <strong>Devolução Prevista:</strong> {formatDate(selectedEmprestimo.data_devolucao_prevista)}
                 </p>
-                {selectedEmprestimo.status === "vencido" && (
+                {getEmprestimoStatus(selectedEmprestimo) === "vencido" && (
                   <p className="text-red-600 font-medium">
                     <strong>Atraso:</strong> {getDaysOverdue(selectedEmprestimo.data_devolucao_prevista)} dia(s)
                   </p>

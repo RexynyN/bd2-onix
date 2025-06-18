@@ -1,193 +1,209 @@
-"""
-Emprestimo service for business logic
-"""
-import psycopg2.extras
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from datetime import date, timedelta
-from .base_service import BaseService
-from app.db.database import get_db_connection
-import logging
+from app.database.connection import get_db_cursor
+from app.schemas.schemas import EmprestimoCreate, EmprestimoUpdate, Emprestimo, EmprestimoCompleto, RelatorioEmprestimos
+from fastapi import HTTPException
 
-logger = logging.getLogger(__name__)
-
-class EmprestimoService(BaseService):
-    def __init__(self):
-        super().__init__("Emprestimo", "id_emprestimo")
+class EmprestimoService:
     
-    def create_loan(self, user_id: int, stock_id: int, loan_date: date = None, due_date: date = None) -> Optional[int]:
-        """Create a new loan with business logic validation"""
-        loan_date = loan_date or date.today()
-        due_date = due_date or (loan_date + timedelta(days=14))  # Default 2 weeks
-        
-        # Check if item is available
-        if not self._is_item_available(stock_id):
-            raise ValueError("Item is not available for loan")
-        
-        # Check if user has penalties
-        if self._user_has_active_penalties(user_id):
-            raise ValueError("User has active penalties and cannot borrow items")
-        
-        data = {
-            'data_emprestimo': loan_date,
-            'data_devolucao_prevista': due_date,
-            'id_estoque': stock_id,
-            'id_usuario': user_id
-        }
-        
-        return self.create(data)
+    def create_emprestimo(self, emprestimo: EmprestimoCreate) -> Emprestimo:
+        with get_db_cursor() as cursor:
+            # Verificar se o item está disponível
+            cursor.execute('''
+                SELECT COUNT(*) FROM Emprestimo 
+                WHERE id_estoque = %s AND data_devolucao IS NULL
+            ''', (emprestimo.id_estoque,))
+            
+            if cursor.fetchone()['count'] > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Item já está emprestado"
+                )
+            
+            # Verificar se o usuário existe
+            cursor.execute("SELECT id_usuario FROM Usuario WHERE id_usuario = %s", (emprestimo.id_usuario,))
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="Usuário não encontrado")
+            
+            # Verificar se o estoque existe
+            cursor.execute("SELECT id_estoque FROM Estoque WHERE id_estoque = %s", (emprestimo.id_estoque,))
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="Item de estoque não encontrado")
+            
+            # Definir data de devolução padrão (15 dias)
+            data_devolucao_prevista = emprestimo.data_devolucao_prevista or (emprestimo.data_emprestimo + timedelta(days=15))
+            
+            query = '''
+                INSERT INTO Emprestimo (data_emprestimo, data_devolucao_prevista, id_estoque, id_usuario)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id_emprestimo, data_emprestimo, data_devolucao_prevista, data_devolucao, id_estoque, id_usuario
+            '''
+            cursor.execute(query, (
+                emprestimo.data_emprestimo,
+                data_devolucao_prevista,
+                emprestimo.id_estoque,
+                emprestimo.id_usuario
+            ))
+            result = cursor.fetchone()
+            return Emprestimo(**result)
     
-    def return_item(self, loan_id: int, return_date: date = None) -> bool:
-        """Return an item and handle late return penalties"""
-        return_date = return_date or date.today()
-        
-        # Get loan details
-        loan = self.get_by_id(loan_id)
-        if not loan:
-            raise ValueError("Loan not found")
-        
-        if loan['data_devolucao']:
-            raise ValueError("Item already returned")
-        
-        # Update loan with return date
-        update_success = self.update(loan_id, {'data_devolucao': return_date})
-        
-        # Check for late return and create penalty if needed
-        if loan['data_devolucao_prevista'] and return_date > loan['data_devolucao_prevista']:
-            self._create_late_penalty(loan_id, loan['id_usuario'], return_date, loan['data_devolucao_prevista'])
-        
-        return update_success
+    def get_emprestimo(self, id_emprestimo: int) -> Optional[Emprestimo]:
+        with get_db_cursor() as cursor:
+            query = "SELECT * FROM Emprestimo WHERE id_emprestimo = %s"
+            cursor.execute(query, (id_emprestimo,))
+            result = cursor.fetchone()
+            if result:
+                return Emprestimo(**result)
+            return None
     
-    def get_active_loans(self, page: int = 1, size: int = 10) -> tuple[List[Dict[str, Any]], int]:
-        """Get all active loans"""
-        offset = (page - 1) * size
-        
-        # Count query
-        count_query = """
-            SELECT COUNT(*) FROM Emprestimo
-            WHERE data_devolucao IS NULL
-        """
-        
-        # Data query
-        data_query = """
-            SELECT e.*, u.nome as usuario_nome, u.email as usuario_email,
-                   est.condicao, t.tipo_midia
-            FROM Emprestimo e
-            JOIN Usuario u ON e.id_usuario = u.id_usuario
-            JOIN Estoque est ON e.id_estoque = est.id_estoque
-            JOIN Titulo t ON est.id_titulo = t.id_titulo
-            WHERE e.data_devolucao IS NULL
-            ORDER BY e.data_emprestimo DESC
-            LIMIT %s OFFSET %s
-        """
-        
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                # Get total count
-                cursor.execute(count_query)
-                total = cursor.fetchone()[0]
-                
-                # Get data
-                cursor.execute(data_query, (size, offset))
-                results = cursor.fetchall()
-                
-                return [dict(row) for row in results], total
+    def get_emprestimos(self, skip: int = 0, limit: int = 100) -> List[Emprestimo]:
+        with get_db_cursor() as cursor:
+            query = "SELECT * FROM Emprestimo ORDER BY id_emprestimo OFFSET %s LIMIT %s"
+            cursor.execute(query, (skip, limit))
+            results = cursor.fetchall()
+            return [Emprestimo(**result) for result in results]
     
-    def get_overdue_loans(self) -> List[Dict[str, Any]]:
-        """Get all overdue loans"""
-        query = """
-            SELECT e.*, u.nome as usuario_nome, u.email as usuario_email,
-                   est.condicao, t.tipo_midia
-            FROM Emprestimo e
-            JOIN Usuario u ON e.id_usuario = u.id_usuario
-            JOIN Estoque est ON e.id_estoque = est.id_estoque
-            JOIN Titulo t ON est.id_titulo = t.id_titulo
-            WHERE e.data_devolucao IS NULL 
-            AND e.data_devolucao_prevista < CURRENT_DATE
-            ORDER BY e.data_devolucao_prevista
-        """
+    def devolver_item(self, id_emprestimo: int, data_devolucao: date = None) -> Optional[Emprestimo]:
+        if data_devolucao is None:
+            data_devolucao = date.today()
         
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute(query)
-                return [dict(row) for row in cursor.fetchall()]
+        with get_db_cursor() as cursor:
+            query = '''
+                UPDATE Emprestimo 
+                SET data_devolucao = %s
+                WHERE id_emprestimo = %s AND data_devolucao IS NULL
+                RETURNING id_emprestimo, data_emprestimo, data_devolucao_prevista, data_devolucao, id_estoque, id_usuario
+            '''
+            cursor.execute(query, (data_devolucao, id_emprestimo))
+            result = cursor.fetchone()
+            if result:
+                return Emprestimo(**result)
+            else:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Empréstimo não encontrado ou já devolvido"
+                )
     
-    def get_loan_history(self, page: int = 1, size: int = 10) -> tuple[List[Dict[str, Any]], int]:
-        """Get complete loan history"""
-        offset = (page - 1) * size
-        
-        # Count query
-        count_query = "SELECT COUNT(*) FROM Emprestimo"
-        
-        # Data query
-        data_query = """
-            SELECT e.*, u.nome as usuario_nome, u.email as usuario_email,
-                   est.condicao, t.tipo_midia,
-                   CASE 
-                       WHEN e.data_devolucao IS NOT NULL THEN 'devolvido'
-                       WHEN e.data_devolucao_prevista < CURRENT_DATE THEN 'atrasado'
-                       ELSE 'ativo'
-                   END as status
-            FROM Emprestimo e
-            JOIN Usuario u ON e.id_usuario = u.id_usuario
-            JOIN Estoque est ON e.id_estoque = est.id_estoque
-            JOIN Titulo t ON est.id_titulo = t.id_titulo
-            ORDER BY e.data_emprestimo DESC
-            LIMIT %s OFFSET %s
-        """
-        
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                # Get total count
-                cursor.execute(count_query)
-                total = cursor.fetchone()[0]
-                
-                # Get data
-                cursor.execute(data_query, (size, offset))
-                results = cursor.fetchall()
-                
-                return [dict(row) for row in results], total
+    def get_emprestimos_em_andamento(self) -> List[EmprestimoCompleto]:
+        with get_db_cursor() as cursor:
+            query = '''
+                SELECT 
+                    e.id_emprestimo,
+                    e.data_emprestimo,
+                    e.data_devolucao_prevista,
+                    e.data_devolucao,
+                    u.id_usuario, u.nome as usuario_nome, u.email, u.endereco, u.telefone,
+                    COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) as item_titulo,
+                    t.tipo_midia,
+                    b.nome as biblioteca_nome
+                FROM Emprestimo e
+                INNER JOIN Usuario u ON e.id_usuario = u.id_usuario
+                INNER JOIN Estoque est ON e.id_estoque = est.id_estoque
+                INNER JOIN Titulo t ON est.id_titulo = t.id_titulo
+                INNER JOIN Biblioteca b ON est.id_biblioteca = b.id_biblioteca
+                LEFT JOIN Livros l ON t.id_titulo = l.id_livro
+                LEFT JOIN Revistas r ON t.id_titulo = r.id_revista
+                LEFT JOIN DVDs d ON t.id_titulo = d.id_dvd
+                LEFT JOIN Artigos a ON t.id_titulo = a.id_artigo
+                WHERE e.data_devolucao IS NULL
+                ORDER BY e.data_emprestimo DESC
+            '''
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            emprestimos = []
+            for result in results:
+                emprestimos.append(EmprestimoCompleto(
+                    id_emprestimo=result['id_emprestimo'],
+                    data_emprestimo=result['data_emprestimo'],
+                    data_devolucao_prevista=result['data_devolucao_prevista'],
+                    data_devolucao=result['data_devolucao'],
+                    usuario={
+                        'id_usuario': result['id_usuario'],
+                        'nome': result['usuario_nome'],
+                        'email': result['email'],
+                        'endereco': result['endereco'],
+                        'telefone': result['telefone']
+                    },
+                    item_titulo=result['item_titulo'],
+                    tipo_midia=result['tipo_midia'],
+                    biblioteca=result['biblioteca_nome']
+                ))
+            return emprestimos
     
-    def _is_item_available(self, stock_id: int) -> bool:
-        """Check if an item is available for loan"""
-        query = """
-            SELECT 1 FROM Estoque est
-            LEFT JOIN Emprestimo emp ON est.id_estoque = emp.id_estoque 
-                AND emp.data_devolucao IS NULL
-            WHERE est.id_estoque = %s AND emp.id_emprestimo IS NULL
-        """
-        
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query, (stock_id,))
-                return cursor.fetchone() is not None
+    def get_emprestimos_vencidos(self) -> List[EmprestimoCompleto]:
+        with get_db_cursor() as cursor:
+            query = '''
+                SELECT 
+                    e.id_emprestimo,
+                    e.data_emprestimo,
+                    e.data_devolucao_prevista,
+                    e.data_devolucao,
+                    u.id_usuario, u.nome as usuario_nome, u.email, u.endereco, u.telefone,
+                    COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) as item_titulo,
+                    t.tipo_midia,
+                    b.nome as biblioteca_nome
+                FROM Emprestimo e
+                INNER JOIN Usuario u ON e.id_usuario = u.id_usuario
+                INNER JOIN Estoque est ON e.id_estoque = est.id_estoque
+                INNER JOIN Titulo t ON est.id_titulo = t.id_titulo
+                INNER JOIN Biblioteca b ON est.id_biblioteca = b.id_biblioteca
+                LEFT JOIN Livros l ON t.id_titulo = l.id_livro
+                LEFT JOIN Revistas r ON t.id_titulo = r.id_revista
+                LEFT JOIN DVDs d ON t.id_titulo = d.id_dvd
+                LEFT JOIN Artigos a ON t.id_titulo = a.id_artigo
+                WHERE e.data_devolucao IS NULL AND e.data_devolucao_prevista < %s
+                ORDER BY e.data_devolucao_prevista ASC
+            '''
+            cursor.execute(query, (date.today(),))
+            results = cursor.fetchall()
+            
+            emprestimos = []
+            for result in results:
+                emprestimos.append(EmprestimoCompleto(
+                    id_emprestimo=result['id_emprestimo'],
+                    data_emprestimo=result['data_emprestimo'],
+                    data_devolucao_prevista=result['data_devolucao_prevista'],
+                    data_devolucao=result['data_devolucao'],
+                    usuario={
+                        'id_usuario': result['id_usuario'],
+                        'nome': result['usuario_nome'],
+                        'email': result['email'],
+                        'endereco': result['endereco'],
+                        'telefone': result['telefone']
+                    },
+                    item_titulo=result['item_titulo'],
+                    tipo_midia=result['tipo_midia'],
+                    biblioteca=result['biblioteca_nome']
+                ))
+            return emprestimos
     
-    def _user_has_active_penalties(self, user_id: int) -> bool:
-        """Check if user has active penalties"""
-        query = """
-            SELECT 1 FROM Penalizacao
-            WHERE id_usuario = %s 
-            AND (final_penalizacao IS NULL OR final_penalizacao > CURRENT_DATE)
-        """
-        
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query, (user_id,))
-                return cursor.fetchone() is not None
-    
-    def _create_late_penalty(self, loan_id: int, user_id: int, return_date: date, due_date: date):
-        """Create penalty for late return"""
-        days_late = (return_date - due_date).days
-        description = f"Devolução atrasada em {days_late} dia(s)"
-        penalty_end = return_date + timedelta(days=days_late)  # Penalty duration equals late days
-        
-        penalty_query = """
-            INSERT INTO Penalizacao (descricao, final_penalizacao, id_usuario, id_emprestimo)
-            VALUES (%s, %s, %s, %s)
-        """
-        
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(penalty_query, (description, penalty_end, user_id, loan_id))
-                conn.commit()
+    def get_relatorio_emprestimos(self) -> RelatorioEmprestimos:
+        with get_db_cursor() as cursor:
+            # Total de empréstimos
+            cursor.execute("SELECT COUNT(*) FROM Emprestimo")
+            total_emprestimos = cursor.fetchone()['count']
+            
+            # Empréstimos em andamento
+            cursor.execute("SELECT COUNT(*) FROM Emprestimo WHERE data_devolucao IS NULL")
+            emprestimos_em_andamento = cursor.fetchone()['count']
+            
+            # Empréstimos vencidos
+            cursor.execute(
+                "SELECT COUNT(*) FROM Emprestimo WHERE data_devolucao IS NULL AND data_devolucao_prevista < %s",
+                (date.today(),)
+            )
+            emprestimos_vencidos = cursor.fetchone()['count']
+            
+            # Empréstimos devolvidos
+            cursor.execute("SELECT COUNT(*) FROM Emprestimo WHERE data_devolucao IS NOT NULL")
+            emprestimos_devolvidos = cursor.fetchone()['count']
+            
+            return RelatorioEmprestimos(
+                total_emprestimos=total_emprestimos,
+                emprestimos_em_andamento=emprestimos_em_andamento,
+                emprestimos_vencidos=emprestimos_vencidos,
+                emprestimos_devolvidos=emprestimos_devolvidos
+            )
 
 emprestimo_service = EmprestimoService()

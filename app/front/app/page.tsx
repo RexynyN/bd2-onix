@@ -4,77 +4,105 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Users, Building2, BookOpen, Calendar, TrendingUp, AlertTriangle } from "lucide-react"
+import { usuariosAPI, bibliotecasAPI, titulosAPI, emprestimosAPI } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
 
 interface DashboardStats {
   totalUsuarios: number
   totalBibliotecas: number
-  totalMidias: number
+  totalTitulos: number
   emprestimosAtivos: number
   emprestimosVencidos: number
-  itensDisponiveis: number
+  emprestimosDevolvidos: number
+  totalEmprestimos: number
 }
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>({
     totalUsuarios: 0,
     totalBibliotecas: 0,
-    totalMidias: 0,
+    totalTitulos: 0,
     emprestimosAtivos: 0,
     emprestimosVencidos: 0,
-    itensDisponiveis: 0,
+    emprestimosDevolvidos: 0,
+    totalEmprestimos: 0,
   })
+  const [loading, setLoading] = useState(true)
+  const { toast } = useToast()
 
   useEffect(() => {
-    // Simular carregamento de dados da API
-    setStats({
-      totalUsuarios: 1250,
-      totalBibliotecas: 5,
-      totalMidias: 15420,
-      emprestimosAtivos: 342,
-      emprestimosVencidos: 23,
-      itensDisponiveis: 12890,
-    })
-  }, [])
+    const fetchDashboardData = async () => {
+      try {
+        const [usuariosRes, bibliotecasRes, titulosRes, relatorioRes] = await Promise.all([
+          usuariosAPI.getAll(0, 1000),
+          bibliotecasAPI.getAll(0, 1000),
+          titulosAPI.getAll(0, 1000),
+          emprestimosAPI.getRelatorio(),
+        ])
+
+        setStats({
+          totalUsuarios: usuariosRes.data.length,
+          totalBibliotecas: bibliotecasRes.data.length,
+          totalTitulos: titulosRes.data.length,
+          emprestimosAtivos: relatorioRes.data.emprestimos_em_andamento,
+          emprestimosVencidos: relatorioRes.data.emprestimos_vencidos,
+          emprestimosDevolvidos: relatorioRes.data.emprestimos_devolvidos,
+          totalEmprestimos: relatorioRes.data.total_emprestimos,
+        })
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error)
+        toast({
+          title: "Erro ao carregar dados",
+          description: "Não foi possível carregar os dados do dashboard.",
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchDashboardData()
+  }, [toast])
 
   const cards = [
     {
       title: "Total de Usuários",
-      value: stats.totalUsuarios.toLocaleString(),
+      value: loading ? "..." : stats.totalUsuarios.toLocaleString(),
       description: "Usuários cadastrados no sistema",
       icon: Users,
       color: "text-blue-600",
     },
     {
       title: "Bibliotecas",
-      value: stats.totalBibliotecas.toString(),
+      value: loading ? "..." : stats.totalBibliotecas.toString(),
       description: "Unidades ativas",
       icon: Building2,
       color: "text-green-600",
     },
     {
-      title: "Acervo Total",
-      value: stats.totalMidias.toLocaleString(),
-      description: "Mídias cadastradas",
+      title: "Títulos Cadastrados",
+      value: loading ? "..." : stats.totalTitulos.toLocaleString(),
+      description: "Títulos no sistema",
       icon: BookOpen,
       color: "text-purple-600",
     },
     {
       title: "Empréstimos Ativos",
-      value: stats.emprestimosAtivos.toString(),
+      value: loading ? "..." : stats.emprestimosAtivos.toString(),
       description: "Em andamento",
       icon: Calendar,
       color: "text-orange-600",
     },
     {
-      title: "Itens Disponíveis",
-      value: stats.itensDisponiveis.toLocaleString(),
-      description: "Para empréstimo",
+      title: "Total de Empréstimos",
+      value: loading ? "..." : stats.totalEmprestimos.toLocaleString(),
+      description: "Histórico completo",
       icon: TrendingUp,
       color: "text-emerald-600",
     },
     {
       title: "Empréstimos Vencidos",
-      value: stats.emprestimosVencidos.toString(),
+      value: loading ? "..." : stats.emprestimosVencidos.toString(),
       description: "Requer atenção",
       icon: AlertTriangle,
       color: "text-red-600",
@@ -111,36 +139,36 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         <Card className="col-span-4">
           <CardHeader>
-            <CardTitle>Atividade Recente</CardTitle>
-            <CardDescription>Últimas movimentações do sistema</CardDescription>
+            <CardTitle>Sistema Conectado</CardTitle>
+            <CardDescription>API integrada e funcionando</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center space-x-4">
               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
               <div className="flex-1">
-                <p className="text-sm font-medium">Novo usuário cadastrado</p>
-                <p className="text-xs text-muted-foreground">Maria Silva - há 2 minutos</p>
+                <p className="text-sm font-medium">API de Usuários</p>
+                <p className="text-xs text-muted-foreground">Conectada e funcionando</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
               <div className="flex-1">
-                <p className="text-sm font-medium">Empréstimo realizado</p>
-                <p className="text-xs text-muted-foreground">"Dom Casmurro" - há 15 minutos</p>
+                <p className="text-sm font-medium">API de Bibliotecas</p>
+                <p className="text-xs text-muted-foreground">Conectada e funcionando</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
               <div className="flex-1">
-                <p className="text-sm font-medium">Devolução em atraso</p>
-                <p className="text-xs text-muted-foreground">João Santos - há 1 hora</p>
+                <p className="text-sm font-medium">API de Títulos</p>
+                <p className="text-xs text-muted-foreground">Conectada e funcionando</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
               <div className="flex-1">
-                <p className="text-sm font-medium">Nova mídia cadastrada</p>
-                <p className="text-xs text-muted-foreground">"O Alquimista" - há 2 horas</p>
+                <p className="text-sm font-medium">Sistema de Empréstimos</p>
+                <p className="text-xs text-muted-foreground">Operacional</p>
               </div>
             </div>
           </CardContent>
@@ -148,40 +176,53 @@ export default function Dashboard() {
 
         <Card className="col-span-3">
           <CardHeader>
-            <CardTitle>Estatísticas Rápidas</CardTitle>
-            <CardDescription>Métricas importantes</CardDescription>
+            <CardTitle>Resumo de Empréstimos</CardTitle>
+            <CardDescription>Estatísticas em tempo real</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-sm">Taxa de Ocupação</span>
-              <span className="text-sm font-bold onix-accent">73%</span>
+              <span className="text-sm">Em Andamento</span>
+              <span className="text-sm font-bold text-blue-600">{stats.emprestimosAtivos}</span>
             </div>
             <div className="w-full bg-secondary rounded-full h-2">
               <div
-                className="bg-gradient-to-r from-green-500 to-emerald-600 h-2 rounded-full"
-                style={{ width: "73%" }}
+                className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full"
+                style={{
+                  width:
+                    stats.totalEmprestimos > 0 ? `${(stats.emprestimosAtivos / stats.totalEmprestimos) * 100}%` : "0%",
+                }}
               ></div>
             </div>
 
             <div className="flex justify-between items-center">
-              <span className="text-sm">Empréstimos/Mês</span>
-              <span className="text-sm font-bold onix-accent">+12%</span>
+              <span className="text-sm">Vencidos</span>
+              <span className="text-sm font-bold text-red-600">{stats.emprestimosVencidos}</span>
             </div>
             <div className="w-full bg-secondary rounded-full h-2">
               <div
-                className="bg-gradient-to-r from-blue-500 to-purple-600 h-2 rounded-full"
-                style={{ width: "85%" }}
+                className="bg-gradient-to-r from-red-500 to-red-600 h-2 rounded-full"
+                style={{
+                  width:
+                    stats.totalEmprestimos > 0
+                      ? `${(stats.emprestimosVencidos / stats.totalEmprestimos) * 100}%`
+                      : "0%",
+                }}
               ></div>
             </div>
 
             <div className="flex justify-between items-center">
-              <span className="text-sm">Satisfação</span>
-              <span className="text-sm font-bold onix-accent">4.8/5</span>
+              <span className="text-sm">Devolvidos</span>
+              <span className="text-sm font-bold text-green-600">{stats.emprestimosDevolvidos}</span>
             </div>
             <div className="w-full bg-secondary rounded-full h-2">
               <div
-                className="bg-gradient-to-r from-yellow-500 to-orange-600 h-2 rounded-full"
-                style={{ width: "96%" }}
+                className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full"
+                style={{
+                  width:
+                    stats.totalEmprestimos > 0
+                      ? `${(stats.emprestimosDevolvidos / stats.totalEmprestimos) * 100}%`
+                      : "0%",
+                }}
               ></div>
             </div>
           </CardContent>

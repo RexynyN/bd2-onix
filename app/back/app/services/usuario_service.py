@@ -1,86 +1,105 @@
-"""
-Usuario service for business logic
-"""
-import psycopg2.extras
-from typing import List, Optional, Dict, Any
-from .base_service import BaseService
-from app.db.database import get_db_connection
-import logging
+from typing import List, Optional
+from app.database.connection import get_db_cursor
+from app.schemas.schemas import UsuarioCreate, UsuarioUpdate, Usuario
+from fastapi import HTTPException
 
-logger = logging.getLogger(__name__)
-
-class UsuarioService(BaseService):
-    def __init__(self):
-        super().__init__("Usuario", "id_usuario")
+class UsuarioService:
     
-    def get_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        """Get user by email"""
-        query = "SELECT * FROM Usuario WHERE email = %s"
-        
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute(query, (email,))
-                result = cursor.fetchone()
-                return dict(result) if result else None
+    def create_usuario(self, usuario: UsuarioCreate) -> Usuario:
+        with get_db_cursor() as cursor:
+            query = '''
+                INSERT INTO Usuario (nome, email, endereco, telefone)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id_usuario, nome, email, endereco, telefone
+            '''
+            cursor.execute(query, (
+                usuario.nome,
+                usuario.email,
+                usuario.endereco,
+                usuario.telefone
+            ))
+            result = cursor.fetchone()
+            return Usuario(**result)
     
-    def search_users(self, search_term: str, page: int = 1, size: int = 10) -> tuple[List[Dict[str, Any]], int]:
-        """Search users by name or email"""
-        offset = (page - 1) * size
-        search_pattern = f"%{search_term}%"
-        
-        # Count query
-        count_query = """
-            SELECT COUNT(*) FROM Usuario
-            WHERE nome ILIKE %s OR email ILIKE %s
-        """
-        
-        # Data query
-        data_query = """
-            SELECT * FROM Usuario
-            WHERE nome ILIKE %s OR email ILIKE %s
-            ORDER BY nome
-            LIMIT %s OFFSET %s
-        """
-        
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                # Get total count
-                cursor.execute(count_query, (search_pattern, search_pattern))
-                total = cursor.fetchone()[0]
-                
-                # Get data
-                cursor.execute(data_query, (search_pattern, search_pattern, size, offset))
-                results = cursor.fetchall()
-                
-                return [dict(row) for row in results], total
+    def get_usuario(self, id_usuario: int) -> Optional[Usuario]:
+        with get_db_cursor() as cursor:
+            query = "SELECT * FROM Usuario WHERE id_usuario = %s"
+            cursor.execute(query, (id_usuario,))
+            result = cursor.fetchone()
+            if result:
+                return Usuario(**result)
+            return None
     
-    def get_user_loans(self, user_id: int) -> List[Dict[str, Any]]:
-        """Get all loans for a specific user"""
-        query = """
-            SELECT e.*, est.condicao, t.tipo_midia
-            FROM Emprestimo e
-            JOIN Estoque est ON e.id_estoque = est.id_estoque
-            JOIN Titulo t ON est.id_titulo = t.id_titulo
-            WHERE e.id_usuario = %s
-            ORDER BY e.data_emprestimo DESC
-        """
-        
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute(query, (user_id,))
-                return [dict(row) for row in cursor.fetchall()]
+    def get_usuarios(self, skip: int = 0, limit: int = 100) -> List[Usuario]:
+        with get_db_cursor() as cursor:
+            query = "SELECT * FROM Usuario ORDER BY id_usuario OFFSET %s LIMIT %s"
+            cursor.execute(query, (skip, limit))
+            results = cursor.fetchall()
+            return [Usuario(**result) for result in results]
     
-    def get_user_penalties(self, user_id: int) -> List[Dict[str, Any]]:
-        """Get all penalties for a specific user"""
-        query = """
-            SELECT * FROM Penalizacao
-            WHERE id_usuario = %s
-            ORDER BY final_penalizacao DESC
-        """
+    def update_usuario(self, id_usuario: int, usuario: UsuarioUpdate) -> Optional[Usuario]:
+        # Construir query dinamicamente baseado nos campos fornecidos
+        fields = []
+        values = []
         
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute(query, (user_id,))
-                return [dict(row) for row in cursor.fetchall()]
+        if usuario.nome is not None:
+            fields.append("nome = %s")
+            values.append(usuario.nome)
+        if usuario.email is not None:
+            fields.append("email = %s")
+            values.append(usuario.email)
+        if usuario.endereco is not None:
+            fields.append("endereco = %s")
+            values.append(usuario.endereco)
+        if usuario.telefone is not None:
+            fields.append("telefone = %s")
+            values.append(usuario.telefone)
+        
+        if not fields:
+            return self.get_usuario(id_usuario)
+        
+        values.append(id_usuario)
+        
+        with get_db_cursor() as cursor:
+            query = f'''
+                UPDATE Usuario 
+                SET {", ".join(fields)}
+                WHERE id_usuario = %s
+                RETURNING id_usuario, nome, email, endereco, telefone
+            '''
+            cursor.execute(query, values)
+            result = cursor.fetchone()
+            if result:
+                return Usuario(**result)
+            return None
+    
+    def delete_usuario(self, id_usuario: int) -> bool:
+        with get_db_cursor() as cursor:
+            # Verificar se há empréstimos associados
+            cursor.execute("SELECT COUNT(*) FROM Emprestimo WHERE id_usuario = %s", (id_usuario,))
+            count = cursor.fetchone()['count']
+            
+            if count > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Não é possível excluir usuário com empréstimos associados"
+                )
+            
+            query = "DELETE FROM Usuario WHERE id_usuario = %s"
+            cursor.execute(query, (id_usuario,))
+            return cursor.rowcount > 0
+    
+    def get_usuarios_com_emprestimos_em_andamento(self) -> List[Usuario]:
+        with get_db_cursor() as cursor:
+            query = '''
+                SELECT DISTINCT u.* 
+                FROM Usuario u
+                INNER JOIN Emprestimo e ON u.id_usuario = e.id_usuario
+                WHERE e.data_devolucao IS NULL
+                ORDER BY u.nome
+            '''
+            cursor.execute(query)
+            results = cursor.fetchall()
+            return [Usuario(**result) for result in results]
 
 usuario_service = UsuarioService()

@@ -1,90 +1,82 @@
-# Sistema de Gerenciamento de Biblioteca - API
+# Sistema de Gerenciamento de Biblioteca
 
-Este é um backend desenvolvido em Python com FastAPI para gerenciamento de biblioteca e empréstimo de livros. A API conecta-se com um banco de dados PostgreSQL local e não utiliza ORM, trabalhando diretamente com SQL.
+Backend em Python com FastAPI para gerenciamento de biblioteca e empréstimos de livros.
 
-## 🚀 Características
+## 🚀 Funcionalidades
 
-- **FastAPI**: Framework moderno e rápido para APIs
-- **PostgreSQL**: Banco de dados relacional robusto
-- **Sem ORM**: Consultas SQL diretas usando psycopg2
-- **Connection Pool**: Pool de conexões para melhor performance
-- **Validação**: Validação de dados com Pydantic
-- **Documentação**: Documentação automática com Swagger/OpenAPI
-- **Estrutura Modular**: Organização clara em routers, services e schemas
+- **Gerenciamento de Usuários**: CRUD completo de usuários
+- **Gerenciamento de Bibliotecas**: CRUD de bibliotecas
+- **Catálogo de Mídia**: Gerenciamento de livros, revistas, DVDs e artigos
+- **Controle de Estoque**: Gestão de exemplares por biblioteca
+- **Sistema de Empréstimos**: Controle completo de empréstimos e devoluções
+- **Relatórios**: Relatórios de empréstimos, disponibilidade e usuários
 
 ## 📋 Pré-requisitos
 
 - Python 3.8+
 - PostgreSQL 12+
-- pip (gerenciador de pacotes Python)
+- pip ou poetry
 
-## 🛠️ Instalação
+## 🔧 Instalação
 
-### 1. Clone o repositório
-```bash
-git clone <url-do-repositorio>
-cd library_api
-```
+### 1. Clone ou baixe o projeto
 
-### 2. Crie um ambiente virtual
+### 2. Configure o ambiente virtual
+
 ```bash
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate  # Windows
+
+# No Windows
+venv\Scripts\activate
+
+# No Linux/Mac
+source venv/bin/activate
 ```
 
 ### 3. Instale as dependências
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 4. Configure o banco de dados
 
-#### Crie o banco de dados PostgreSQL:
+#### Instale e configure o PostgreSQL:
+- Crie um banco de dados chamado `biblioteca`
+- Execute o script `database_setup.sql` no PostgreSQL
+
 ```sql
 CREATE DATABASE biblioteca;
-CREATE USER usuario WITH PASSWORD 'senha';
-GRANT ALL PRIVILEGES ON DATABASE biblioteca TO usuario;
-```
-
-#### Execute o schema:
-```bash
-psql -U usuario -d biblioteca -f schema.sql
+\c biblioteca;
+\i database_setup.sql
 ```
 
 ### 5. Configure as variáveis de ambiente
 
 Copie o arquivo `.env.example` para `.env` e ajuste as configurações:
+
 ```bash
 cp .env.example .env
 ```
 
 Edite o arquivo `.env` com suas configurações:
+
 ```env
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
-DATABASE_USER=usuario
-DATABASE_PASSWORD=senha
 DATABASE_NAME=biblioteca
-
-MIN_CONNECTIONS=5
-MAX_CONNECTIONS=20
-
-API_V1_PREFIX=/api/v1
-PROJECT_NAME=Sistema de Gerenciamento de Biblioteca
+DATABASE_USER=seu_usuario
+DATABASE_PASSWORD=sua_senha
 ```
 
 ## 🚀 Executando a aplicação
 
-### Desenvolvimento
 ```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+# Opção 1: Usando o script run.py
+python run.py
 
-### Produção
-```bash
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Opção 2: Usando uvicorn diretamente
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 A API estará disponível em: http://localhost:8000
@@ -92,147 +84,100 @@ A API estará disponível em: http://localhost:8000
 ## 📚 Documentação da API
 
 Após iniciar a aplicação, acesse:
+
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
-## 🏗️ Estrutura do Projeto
+## 🛠 Estrutura do Projeto
 
 ```
-library_api/
+
 ├── app/
-│   ├── __init__.py
-│   ├── main.py                 # Aplicação principal
-│   ├── core/
-│   │   ├── __init__.py
-│   │   └── config.py          # Configurações
-│   ├── db/
-│   │   ├── __init__.py
-│   │   └── database.py        # Gerenciamento do banco
-│   ├── models/
-│   │   └── __init__.py
-│   ├── schemas/               # Modelos Pydantic
-│   │   ├── __init__.py
-│   │   ├── base.py
-│   │   ├── usuario.py
-│   │   ├── biblioteca.py
-│   │   ├── emprestimo.py
-│   │   ├── livro.py
-│   │   ├── revista.py
-│   │   ├── dvd.py
-│   │   ├── artigo.py
-│   │   ├── estoque.py
-│   │   ├── autor.py
-│   │   └── penalizacao.py
-│   ├── services/              # Lógica de negócio
-│   │   ├── __init__.py
-│   │   ├── base_service.py
+│   ├── api/               # Rotas da API
+│   │   ├── usuarios.py
+│   │   ├── emprestimos.py
+│   │   └── estoque.py
+│   ├── core/              # Configurações
+│   │   └── config.py
+│   ├── database/          # Conexão com banco
+│   │   └── connection.py
+│   ├── schemas/           # Modelos Pydantic
+│   │   └── schemas.py
+│   ├── services/          # Lógica de negócio
 │   │   ├── usuario_service.py
-│   │   ├── biblioteca_service.py
 │   │   ├── emprestimo_service.py
-│   │   └── media_service.py
-│   └── routers/               # Endpoints da API
-│       ├── __init__.py
-│       ├── usuario.py
-│       ├── biblioteca.py
-│       ├── emprestimo.py
-│       ├── media.py
-│       ├── estoque.py
-│       ├── autor.py
-│       └── penalizacao.py
-├── .env.example
-├── requirements.txt
-├── schema.sql
-└── README.md
+│   │   └── estoque_service.py
+│   └── main.py           # Aplicação principal
+├── database_setup.sql    # Script de criação do BD
+├── requirements.txt      # Dependências
+├── run.py               # Script para executar
+└── .env.example         # Exemplo de configuração
 ```
 
-## 🎯 Endpoints Principais
+## 📖 Principais Endpoints
 
 ### Usuários
-- `POST /api/v1/usuarios` - Criar usuário
-- `GET /api/v1/usuarios` - Listar usuários
-- `GET /api/v1/usuarios/{id}` - Obter usuário por ID
+- `GET /api/v1/usuarios/` - Listar usuários
+- `POST /api/v1/usuarios/` - Criar usuário
+- `GET /api/v1/usuarios/{id}` - Buscar usuário
 - `PUT /api/v1/usuarios/{id}` - Atualizar usuário
-- `DELETE /api/v1/usuarios/{id}` - Deletar usuário
-
-### Bibliotecas
-- `POST /api/v1/bibliotecas` - Criar biblioteca
-- `GET /api/v1/bibliotecas` - Listar bibliotecas
-- `GET /api/v1/bibliotecas/{id}/estoque` - Ver estoque da biblioteca
+- `DELETE /api/v1/usuarios/{id}` - Excluir usuário
 
 ### Empréstimos
-- `POST /api/v1/emprestimos/emprestar` - Criar empréstimo
-- `POST /api/v1/emprestimos/{id}/devolver` - Devolver item
-- `GET /api/v1/emprestimos/ativos` - Empréstimos ativos
-- `GET /api/v1/emprestimos/atrasados` - Empréstimos atrasados
-
-### Mídias
-- `POST /api/v1/midias/livros` - Cadastrar livro
-- `POST /api/v1/midias/revistas` - Cadastrar revista
-- `POST /api/v1/midias/dvds` - Cadastrar DVD
-- `POST /api/v1/midias/artigos` - Cadastrar artigo
-- `GET /api/v1/midias/buscar` - Buscar mídias
+- `GET /api/v1/emprestimos/` - Listar empréstimos
+- `POST /api/v1/emprestimos/` - Criar empréstimo
+- `PATCH /api/v1/emprestimos/{id}/devolver` - Devolver item
+- `GET /api/v1/emprestimos/em-andamento/` - Empréstimos ativos
+- `GET /api/v1/emprestimos/vencidos/` - Empréstimos vencidos
+- `GET /api/v1/emprestimos/relatorio/` - Relatório de empréstimos
 
 ### Estoque
-- `POST /api/v1/estoque` - Adicionar item ao estoque
-- `GET /api/v1/estoque` - Listar estoque
+- `GET /api/v1/estoque/` - Listar estoque
+- `POST /api/v1/estoque/` - Adicionar ao estoque
+- `GET /api/v1/estoque/disponibilidade/{id_titulo}` - Verificar disponibilidade
+- `GET /api/v1/estoque/biblioteca/{id}` - Estoque por biblioteca
 
-### Autores
-- `POST /api/v1/autores` - Cadastrar autor
-- `POST /api/v1/autores/autorias` - Vincular autor a título
+## 🔒 Regras de Negócio Implementadas
 
-### Penalizações
-- `GET /api/v1/penalizacoes` - Listar penalizações
-- `GET /api/v1/penalizacoes?ativas=true` - Penalizações ativas
+1. **Empréstimos**:
+   - Não é possível emprestar um item já emprestado
+   - Data de devolução padrão: 15 dias após empréstimo
+   - Controle de itens vencidos
 
-## 🔧 Funcionalidades Especiais
+2. **Exclusões**:
+   - Usuários com empréstimos não podem ser excluídos
+   - Bibliotecas com estoque não podem ser excluídas
+   - Livros com exemplares no estoque não podem ser excluídos
 
-### Gestão de Empréstimos
-- Validação automática de disponibilidade
-- Verificação de penalizações ativas
-- Criação automática de penalizações por atraso
-- Relatórios de empréstimos ativos e atrasados
+3. **Validações**:
+   - Campos obrigatórios validados via Pydantic
+   - Verificação de existência de relacionamentos
 
-### Busca de Mídias
-- Busca unificada em todos os tipos de mídia
-- Filtros por tipo de mídia
-- Paginação de resultados
+## 🐛 Resolução de Problemas
 
-### Pool de Conexões
-- Gerenciamento eficiente de conexões com PostgreSQL
-- Configuração automática de pool
-- Tratamento de erros de conexão
+### Erro de conexão com banco
+- Verifique se o PostgreSQL está rodando
+- Confirme as credenciais no arquivo `.env`
+- Teste a conexão: `psql -h localhost -U postgres -d biblioteca`
 
-## 🧪 Testando a API
-
-### Health Check
+### Erro ao instalar psycopg2
+No Windows, pode ser necessário instalar:
 ```bash
-curl http://localhost:8000/health
+pip install psycopg2-binary
 ```
 
-### Criar um usuário
-```bash
-curl -X POST "http://localhost:8000/api/v1/usuarios" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "nome": "João Silva",
-       "email": "joao@email.com",
-       "endereco": "Rua das Flores, 123",
-       "telefone": "(11) 99999-9999"
-     }'
-```
+## 📄 Licença
 
-### Buscar mídias
-```bash
-curl "http://localhost:8000/api/v1/midias/buscar?termo=python&page=1&size=10"
-```
+Este projeto é de uso educacional e pode ser livremente modificado e distribuído.
 
-## ⚠️ Importante
+## 🤝 Contribuições
 
-- Configure adequadamente as variáveis de ambiente antes de executar
-- Certifique-se de que o PostgreSQL está rodando e acessível
-- Para produção, ajuste as configurações de CORS no `main.py`
-- Monitore os logs para debugging e monitoramento
+1. Faça um fork do projeto
+2. Crie uma branch para sua feature
+3. Commit suas mudanças
+4. Push para a branch
+5. Abra um Pull Request
 
-## 📝 Licença
+---
 
-Este projeto está sob a licença MIT.
+**Desenvolvido para demonstrar um sistema completo de gerenciamento de biblioteca usando FastAPI e PostgreSQL sem ORM.**

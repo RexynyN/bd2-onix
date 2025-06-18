@@ -20,20 +20,15 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-
-interface Usuario {
-  id_usuario: number
-  nome: string
-  email: string
-  endereco: string
-  telefone: string
-}
+import { usuariosAPI, type Usuario } from "@/lib/api"
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<Usuario | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     nome: "",
     email: "",
@@ -43,31 +38,25 @@ export default function UsuariosPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    // Simular carregamento de dados
-    setUsuarios([
-      {
-        id_usuario: 1,
-        nome: "João Silva",
-        email: "joao@email.com",
-        endereco: "Rua A, 123",
-        telefone: "(11) 99999-9999",
-      },
-      {
-        id_usuario: 2,
-        nome: "Maria Santos",
-        email: "maria@email.com",
-        endereco: "Rua B, 456",
-        telefone: "(11) 88888-8888",
-      },
-      {
-        id_usuario: 3,
-        nome: "Pedro Oliveira",
-        email: "pedro@email.com",
-        endereco: "Rua C, 789",
-        telefone: "(11) 77777-7777",
-      },
-    ])
+    fetchUsuarios()
   }, [])
+
+  const fetchUsuarios = async () => {
+    try {
+      setLoading(true)
+      const response = await usuariosAPI.getAll()
+      setUsuarios(response.data)
+    } catch (error) {
+      console.error("Error fetching usuarios:", error)
+      toast({
+        title: "Erro ao carregar usuários",
+        description: "Não foi possível carregar a lista de usuários.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredUsuarios = usuarios.filter(
     (usuario) =>
@@ -77,30 +66,40 @@ export default function UsuariosPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitting(true)
 
-    if (editingUser) {
-      // Atualizar usuário
-      setUsuarios(usuarios.map((u) => (u.id_usuario === editingUser.id_usuario ? { ...editingUser, ...formData } : u)))
-      toast({
-        title: "Usuário atualizado",
-        description: "Os dados do usuário foram atualizados com sucesso.",
-      })
-    } else {
-      // Criar novo usuário
-      const newUser: Usuario = {
-        id_usuario: Math.max(...usuarios.map((u) => u.id_usuario)) + 1,
-        ...formData,
+    try {
+      if (editingUser) {
+        // Atualizar usuário
+        const response = await usuariosAPI.update(editingUser.id_usuario, formData)
+        setUsuarios(usuarios.map((u) => (u.id_usuario === editingUser.id_usuario ? response.data : u)))
+        toast({
+          title: "Usuário atualizado",
+          description: "Os dados do usuário foram atualizados com sucesso.",
+        })
+      } else {
+        // Criar novo usuário
+        const response = await usuariosAPI.create(formData)
+        setUsuarios([...usuarios, response.data])
+        toast({
+          title: "Usuário criado",
+          description: "Novo usuário foi cadastrado com sucesso.",
+        })
       }
-      setUsuarios([...usuarios, newUser])
-      toast({
-        title: "Usuário criado",
-        description: "Novo usuário foi cadastrado com sucesso.",
-      })
-    }
 
-    setIsDialogOpen(false)
-    setEditingUser(null)
-    setFormData({ nome: "", email: "", endereco: "", telefone: "" })
+      setIsDialogOpen(false)
+      setEditingUser(null)
+      setFormData({ nome: "", email: "", endereco: "", telefone: "" })
+    } catch (error) {
+      console.error("Error saving usuario:", error)
+      toast({
+        title: "Erro ao salvar usuário",
+        description: "Não foi possível salvar o usuário. Tente novamente.",
+        variant: "destructive",
+      })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleEdit = (usuario: Usuario) => {
@@ -114,19 +113,47 @@ export default function UsuariosPage() {
     setIsDialogOpen(true)
   }
 
-  const handleDelete = (id: number) => {
-    setUsuarios(usuarios.filter((u) => u.id_usuario !== id))
-    toast({
-      title: "Usuário removido",
-      description: "O usuário foi removido do sistema.",
-      variant: "destructive",
-    })
+  const handleDelete = async (id: number) => {
+    try {
+      await usuariosAPI.delete(id)
+      setUsuarios(usuarios.filter((u) => u.id_usuario !== id))
+      toast({
+        title: "Usuário removido",
+        description: "O usuário foi removido do sistema.",
+      })
+    } catch (error) {
+      console.error("Error deleting usuario:", error)
+      toast({
+        title: "Erro ao remover usuário",
+        description: "Não foi possível remover o usuário. Tente novamente.",
+        variant: "destructive",
+      })
+    }
   }
 
   const openNewUserDialog = () => {
     setEditingUser(null)
     setFormData({ nome: "", email: "", endereco: "", telefone: "" })
     setIsDialogOpen(true)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex items-center gap-4">
+          <SidebarTrigger />
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Usuários</h2>
+            <p className="text-muted-foreground">Carregando...</p>
+          </div>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">Carregando usuários...</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -167,6 +194,7 @@ export default function UsuariosPage() {
                     onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
                     className="col-span-3"
                     required
+                    disabled={submitting}
                   />
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
@@ -180,6 +208,7 @@ export default function UsuariosPage() {
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="col-span-3"
                     required
+                    disabled={submitting}
                   />
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
@@ -192,6 +221,7 @@ export default function UsuariosPage() {
                     onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
                     className="col-span-3"
                     required
+                    disabled={submitting}
                   />
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
@@ -204,12 +234,13 @@ export default function UsuariosPage() {
                     onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
                     className="col-span-3"
                     required
+                    disabled={submitting}
                   />
                 </div>
               </div>
               <DialogFooter>
-                <Button type="submit" className="onix-gradient">
-                  {editingUser ? "Atualizar" : "Cadastrar"}
+                <Button type="submit" className="onix-gradient" disabled={submitting}>
+                  {submitting ? "Salvando..." : editingUser ? "Atualizar" : "Cadastrar"}
                 </Button>
               </DialogFooter>
             </form>

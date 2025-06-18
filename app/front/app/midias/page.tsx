@@ -22,10 +22,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
+import { titulosAPI, livrosAPI, revistasAPI, dvdsAPI, artigosAPI, type Titulo } from "@/lib/api"
 
-interface Midia {
-  id_titulo: number
-  tipo_midia: "livro" | "revista" | "dvd" | "artigo"
+interface MidiaExtended extends Titulo {
   titulo?: string
   ISBN?: string
   numero_paginas?: number
@@ -36,6 +35,7 @@ interface Midia {
   duracao?: number
   diretor?: string
   genero?: string
+  data_lancamento?: string
   resumo?: string
   palavras_chave?: string
 }
@@ -55,51 +55,43 @@ const tipoMidiaColors = {
 }
 
 export default function MidiasPage() {
-  const [midias, setMidias] = useState<Midia[]>([])
+  const [midias, setMidias] = useState<MidiaExtended[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [editingMidia, setEditingMidia] = useState<Midia | null>(null)
+  const [editingMidia, setEditingMidia] = useState<MidiaExtended | null>(null)
   const [selectedTipo, setSelectedTipo] = useState<string>("")
-  const [formData, setFormData] = useState<Partial<Midia>>({})
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [formData, setFormData] = useState<Partial<MidiaExtended>>({})
   const { toast } = useToast()
 
   useEffect(() => {
-    // Simular carregamento de dados
-    setMidias([
-      {
-        id_titulo: 1,
-        tipo_midia: "livro",
-        titulo: "Dom Casmurro",
-        ISBN: "978-85-359-0277-5",
-        numero_paginas: 256,
-        editora: "Companhia das Letras",
-        data_publicacao: "2008-01-15",
-      },
-      {
-        id_titulo: 2,
-        tipo_midia: "revista",
-        titulo: "National Geographic Brasil",
-        edicao: "Janeiro 2024",
-        periodicidade: "Mensal",
-        editora: "Editora Abril",
-      },
-      {
-        id_titulo: 3,
-        tipo_midia: "dvd",
-        titulo: "Cidade de Deus",
-        duracao: 130,
-        diretor: "Fernando Meirelles",
-        genero: "Drama",
-      },
-      {
-        id_titulo: 4,
-        tipo_midia: "artigo",
-        titulo: "Inteligência Artificial na Educação",
-        resumo: "Análise do impacto da IA no ensino",
-        palavras_chave: "IA, educação, tecnologia",
-      },
-    ])
+    fetchTitulos()
   }, [])
+
+  const fetchTitulos = async () => {
+    try {
+      setLoading(true)
+      const response = await titulosAPI.getAll()
+      // For now, we'll just show the titles. In a real app, you'd need to fetch
+      // additional data for each title based on its type
+      setMidias(
+        response.data.map((titulo) => ({
+          ...titulo,
+          titulo: `Título ${titulo.id_titulo}`, // Placeholder - would come from related tables
+        })),
+      )
+    } catch (error) {
+      console.error("Error fetching titulos:", error)
+      toast({
+        title: "Erro ao carregar mídias",
+        description: "Não foi possível carregar a lista de mídias.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredMidias = midias.filter(
     (midia) =>
@@ -114,40 +106,101 @@ export default function MidiasPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitting(true)
 
-    if (editingMidia) {
-      // Atualizar mídia
-      setMidias(
-        midias.map((m) =>
-          m.id_titulo === editingMidia.id_titulo
-            ? { ...editingMidia, ...formData, tipo_midia: selectedTipo as any }
-            : m,
-        ),
-      )
-      toast({
-        title: "Mídia atualizada",
-        description: "Os dados da mídia foram atualizados com sucesso.",
-      })
-    } else {
-      // Criar nova mídia
-      const newMidia: Midia = {
-        id_titulo: Math.max(...midias.map((m) => m.id_titulo)) + 1,
-        tipo_midia: selectedTipo as any,
-        ...formData,
+    try {
+      if (editingMidia) {
+        // For editing, we would need separate endpoints for each media type
+        toast({
+          title: "Funcionalidade em desenvolvimento",
+          description: "A edição de mídias será implementada em breve.",
+          variant: "destructive",
+        })
+      } else {
+        // Create new title first
+        const tituloResponse = await titulosAPI.create({ tipo_midia: selectedTipo })
+
+        // Create the specific media type record
+        let mediaResponse
+        switch (selectedTipo) {
+          case "livro":
+            if (formData.titulo) {
+              mediaResponse = await livrosAPI.create({
+                titulo: formData.titulo,
+                ISBN: formData.ISBN || "",
+                numero_paginas: formData.numero_paginas || 0,
+                editora: formData.editora || "",
+                data_publicacao: formData.data_publicacao || "",
+                id_titulo: tituloResponse.data.id_titulo,
+              })
+            }
+            break
+          case "revista":
+            if (formData.titulo) {
+              mediaResponse = await revistasAPI.create({
+                titulo: formData.titulo,
+                edicao: formData.edicao || "",
+                periodicidade: formData.periodicidade || "",
+                editora: formData.editora || "",
+                data_publicacao: formData.data_publicacao || "",
+                id_titulo: tituloResponse.data.id_titulo,
+              })
+            }
+            break
+          case "dvd":
+            if (formData.titulo) {
+              mediaResponse = await dvdsAPI.create({
+                titulo: formData.titulo,
+                duracao: formData.duracao || 0,
+                diretor: formData.diretor || "",
+                genero: formData.genero || "",
+                data_lancamento: formData.data_lancamento || "",
+                id_titulo: tituloResponse.data.id_titulo,
+              })
+            }
+            break
+          case "artigo":
+            if (formData.titulo) {
+              mediaResponse = await artigosAPI.create({
+                titulo: formData.titulo,
+                resumo: formData.resumo || "",
+                palavras_chave: formData.palavras_chave || "",
+                data_publicacao: formData.data_publicacao || "",
+                id_titulo: tituloResponse.data.id_titulo,
+              })
+            }
+            break
+        }
+
+        // Add the new title to our list
+        const newMidia: MidiaExtended = {
+          ...tituloResponse.data,
+          ...formData,
+        }
+        setMidias([...midias, newMidia])
+
+        toast({
+          title: "Mídia criada",
+          description: "Nova mídia foi cadastrada com sucesso.",
+        })
       }
-      setMidias([...midias, newMidia])
-      toast({
-        title: "Mídia criada",
-        description: "Nova mídia foi cadastrada com sucesso.",
-      })
-    }
 
-    setIsDialogOpen(false)
-    setEditingMidia(null)
-    resetForm()
+      setIsDialogOpen(false)
+      setEditingMidia(null)
+      resetForm()
+    } catch (error) {
+      console.error("Error saving midia:", error)
+      toast({
+        title: "Erro ao salvar mídia",
+        description: "Não foi possível salvar a mídia. Tente novamente.",
+        variant: "destructive",
+      })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const handleEdit = (midia: Midia) => {
+  const handleEdit = (midia: MidiaExtended) => {
     setEditingMidia(midia)
     setSelectedTipo(midia.tipo_midia)
     setFormData(midia)
@@ -155,10 +208,10 @@ export default function MidiasPage() {
   }
 
   const handleDelete = (id: number) => {
-    setMidias(midias.filter((m) => m.id_titulo !== id))
+    // Note: The API doesn't provide a delete endpoint for titles
     toast({
-      title: "Mídia removida",
-      description: "A mídia foi removida do sistema.",
+      title: "Funcionalidade não disponível",
+      description: "A API não fornece endpoint para deletar títulos.",
       variant: "destructive",
     })
   }
@@ -184,6 +237,7 @@ export default function MidiasPage() {
                 onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
                 className="col-span-3"
                 required
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -195,6 +249,7 @@ export default function MidiasPage() {
                 value={formData.ISBN || ""}
                 onChange={(e) => setFormData({ ...formData, ISBN: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -207,6 +262,7 @@ export default function MidiasPage() {
                 value={formData.numero_paginas || ""}
                 onChange={(e) => setFormData({ ...formData, numero_paginas: Number.parseInt(e.target.value) })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -218,6 +274,7 @@ export default function MidiasPage() {
                 value={formData.editora || ""}
                 onChange={(e) => setFormData({ ...formData, editora: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -230,6 +287,7 @@ export default function MidiasPage() {
                 value={formData.data_publicacao || ""}
                 onChange={(e) => setFormData({ ...formData, data_publicacao: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
           </>
@@ -247,6 +305,7 @@ export default function MidiasPage() {
                 onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
                 className="col-span-3"
                 required
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -258,6 +317,7 @@ export default function MidiasPage() {
                 value={formData.edicao || ""}
                 onChange={(e) => setFormData({ ...formData, edicao: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -269,6 +329,7 @@ export default function MidiasPage() {
                 value={formData.periodicidade || ""}
                 onChange={(e) => setFormData({ ...formData, periodicidade: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -280,6 +341,20 @@ export default function MidiasPage() {
                 value={formData.editora || ""}
                 onChange={(e) => setFormData({ ...formData, editora: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="data_publicacao" className="text-right">
+                Data Publicação
+              </Label>
+              <Input
+                id="data_publicacao"
+                type="date"
+                value={formData.data_publicacao || ""}
+                onChange={(e) => setFormData({ ...formData, data_publicacao: e.target.value })}
+                className="col-span-3"
+                disabled={submitting}
               />
             </div>
           </>
@@ -297,6 +372,7 @@ export default function MidiasPage() {
                 onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
                 className="col-span-3"
                 required
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -309,6 +385,7 @@ export default function MidiasPage() {
                 value={formData.duracao || ""}
                 onChange={(e) => setFormData({ ...formData, duracao: Number.parseInt(e.target.value) })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -320,6 +397,7 @@ export default function MidiasPage() {
                 value={formData.diretor || ""}
                 onChange={(e) => setFormData({ ...formData, diretor: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -331,6 +409,20 @@ export default function MidiasPage() {
                 value={formData.genero || ""}
                 onChange={(e) => setFormData({ ...formData, genero: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="data_lancamento" className="text-right">
+                Data Lançamento
+              </Label>
+              <Input
+                id="data_lancamento"
+                type="date"
+                value={formData.data_lancamento || ""}
+                onChange={(e) => setFormData({ ...formData, data_lancamento: e.target.value })}
+                className="col-span-3"
+                disabled={submitting}
               />
             </div>
           </>
@@ -348,6 +440,7 @@ export default function MidiasPage() {
                 onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
                 className="col-span-3"
                 required
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -359,6 +452,7 @@ export default function MidiasPage() {
                 value={formData.resumo || ""}
                 onChange={(e) => setFormData({ ...formData, resumo: e.target.value })}
                 className="col-span-3"
+                disabled={submitting}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -371,6 +465,20 @@ export default function MidiasPage() {
                 onChange={(e) => setFormData({ ...formData, palavras_chave: e.target.value })}
                 className="col-span-3"
                 placeholder="Separadas por vírgula"
+                disabled={submitting}
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="data_publicacao" className="text-right">
+                Data Publicação
+              </Label>
+              <Input
+                id="data_publicacao"
+                type="date"
+                value={formData.data_publicacao || ""}
+                onChange={(e) => setFormData({ ...formData, data_publicacao: e.target.value })}
+                className="col-span-3"
+                disabled={submitting}
               />
             </div>
           </>
@@ -378,6 +486,26 @@ export default function MidiasPage() {
       default:
         return null
     }
+  }
+
+  // Rest of the component remains the same...
+  if (loading) {
+    return (
+      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex items-center gap-4">
+          <SidebarTrigger />
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Mídias</h2>
+            <p className="text-muted-foreground">Carregando...</p>
+          </div>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">Carregando mídias...</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -412,7 +540,7 @@ export default function MidiasPage() {
                   <Label htmlFor="tipo_midia" className="text-right">
                     Tipo de Mídia
                   </Label>
-                  <Select value={selectedTipo} onValueChange={setSelectedTipo} required>
+                  <Select value={selectedTipo} onValueChange={setSelectedTipo} required disabled={submitting}>
                     <SelectTrigger className="col-span-3">
                       <SelectValue placeholder="Selecione o tipo" />
                     </SelectTrigger>
@@ -428,8 +556,8 @@ export default function MidiasPage() {
                 {renderSpecificFields()}
               </div>
               <DialogFooter>
-                <Button type="submit" className="onix-gradient" disabled={!selectedTipo}>
-                  {editingMidia ? "Atualizar" : "Cadastrar"}
+                <Button type="submit" className="onix-gradient" disabled={!selectedTipo || submitting}>
+                  {submitting ? "Salvando..." : editingMidia ? "Atualizar" : "Cadastrar"}
                 </Button>
               </DialogFooter>
             </form>

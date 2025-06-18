@@ -20,18 +20,15 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-
-interface Biblioteca {
-  id_biblioteca: number
-  nome: string
-  endereco: string
-}
+import { bibliotecasAPI, type Biblioteca } from "@/lib/api"
 
 export default function BibliotecasPage() {
   const [bibliotecas, setBibliotecas] = useState<Biblioteca[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingBiblioteca, setEditingBiblioteca] = useState<Biblioteca | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     nome: "",
     endereco: "",
@@ -39,15 +36,25 @@ export default function BibliotecasPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    // Simular carregamento de dados
-    setBibliotecas([
-      { id_biblioteca: 1, nome: "Biblioteca Central", endereco: "Av. Principal, 1000" },
-      { id_biblioteca: 2, nome: "Biblioteca Norte", endereco: "Rua Norte, 500" },
-      { id_biblioteca: 3, nome: "Biblioteca Sul", endereco: "Rua Sul, 300" },
-      { id_biblioteca: 4, nome: "Biblioteca Infantil", endereco: "Praça das Crianças, 100" },
-      { id_biblioteca: 5, nome: "Biblioteca Universitária", endereco: "Campus Universitário, s/n" },
-    ])
+    fetchBibliotecas()
   }, [])
+
+  const fetchBibliotecas = async () => {
+    try {
+      setLoading(true)
+      const response = await bibliotecasAPI.getAll()
+      setBibliotecas(response.data)
+    } catch (error) {
+      console.error("Error fetching bibliotecas:", error)
+      toast({
+        title: "Erro ao carregar bibliotecas",
+        description: "Não foi possível carregar a lista de bibliotecas.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredBibliotecas = bibliotecas.filter(
     (biblioteca) =>
@@ -57,34 +64,42 @@ export default function BibliotecasPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitting(true)
 
-    if (editingBiblioteca) {
-      // Atualizar biblioteca
-      setBibliotecas(
-        bibliotecas.map((b) =>
-          b.id_biblioteca === editingBiblioteca.id_biblioteca ? { ...editingBiblioteca, ...formData } : b,
-        ),
-      )
-      toast({
-        title: "Biblioteca atualizada",
-        description: "Os dados da biblioteca foram atualizados com sucesso.",
-      })
-    } else {
-      // Criar nova biblioteca
-      const newBiblioteca: Biblioteca = {
-        id_biblioteca: Math.max(...bibliotecas.map((b) => b.id_biblioteca)) + 1,
-        ...formData,
+    try {
+      if (editingBiblioteca) {
+        // Atualizar biblioteca
+        const response = await bibliotecasAPI.update(editingBiblioteca.id_biblioteca, formData)
+        setBibliotecas(
+          bibliotecas.map((b) => (b.id_biblioteca === editingBiblioteca.id_biblioteca ? response.data : b)),
+        )
+        toast({
+          title: "Biblioteca atualizada",
+          description: "Os dados da biblioteca foram atualizados com sucesso.",
+        })
+      } else {
+        // Criar nova biblioteca
+        const response = await bibliotecasAPI.create(formData)
+        setBibliotecas([...bibliotecas, response.data])
+        toast({
+          title: "Biblioteca criada",
+          description: "Nova biblioteca foi cadastrada com sucesso.",
+        })
       }
-      setBibliotecas([...bibliotecas, newBiblioteca])
-      toast({
-        title: "Biblioteca criada",
-        description: "Nova biblioteca foi cadastrada com sucesso.",
-      })
-    }
 
-    setIsDialogOpen(false)
-    setEditingBiblioteca(null)
-    setFormData({ nome: "", endereco: "" })
+      setIsDialogOpen(false)
+      setEditingBiblioteca(null)
+      setFormData({ nome: "", endereco: "" })
+    } catch (error) {
+      console.error("Error saving biblioteca:", error)
+      toast({
+        title: "Erro ao salvar biblioteca",
+        description: "Não foi possível salvar a biblioteca. Tente novamente.",
+        variant: "destructive",
+      })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleEdit = (biblioteca: Biblioteca) => {
@@ -96,19 +111,47 @@ export default function BibliotecasPage() {
     setIsDialogOpen(true)
   }
 
-  const handleDelete = (id: number) => {
-    setBibliotecas(bibliotecas.filter((b) => b.id_biblioteca !== id))
-    toast({
-      title: "Biblioteca removida",
-      description: "A biblioteca foi removida do sistema.",
-      variant: "destructive",
-    })
+  const handleDelete = async (id: number) => {
+    try {
+      await bibliotecasAPI.delete(id)
+      setBibliotecas(bibliotecas.filter((b) => b.id_biblioteca !== id))
+      toast({
+        title: "Biblioteca removida",
+        description: "A biblioteca foi removida do sistema.",
+      })
+    } catch (error) {
+      console.error("Error deleting biblioteca:", error)
+      toast({
+        title: "Erro ao remover biblioteca",
+        description: "Não foi possível remover a biblioteca. Tente novamente.",
+        variant: "destructive",
+      })
+    }
   }
 
   const openNewBibliotecaDialog = () => {
     setEditingBiblioteca(null)
     setFormData({ nome: "", endereco: "" })
     setIsDialogOpen(true)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+        <div className="flex items-center gap-4">
+          <SidebarTrigger />
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Bibliotecas</h2>
+            <p className="text-muted-foreground">Carregando...</p>
+          </div>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">Carregando bibliotecas...</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -149,6 +192,7 @@ export default function BibliotecasPage() {
                     onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
                     className="col-span-3"
                     required
+                    disabled={submitting}
                   />
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
@@ -161,12 +205,13 @@ export default function BibliotecasPage() {
                     onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
                     className="col-span-3"
                     required
+                    disabled={submitting}
                   />
                 </div>
               </div>
               <DialogFooter>
-                <Button type="submit" className="onix-gradient">
-                  {editingBiblioteca ? "Atualizar" : "Cadastrar"}
+                <Button type="submit" className="onix-gradient" disabled={submitting}>
+                  {submitting ? "Salvando..." : editingBiblioteca ? "Atualizar" : "Cadastrar"}
                 </Button>
               </DialogFooter>
             </form>

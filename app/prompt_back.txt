@@ -1,0 +1,122 @@
+Eu preciso fazer um site de gerenciamento de biblioteca e de empréstimo de livros (no mesmo site, são apenas duas visões diferentes),
+e quero que você faça um back end que use Python, com o framework FastApi, e que se conecta com um banco de dados local PostgresSQL (não use nenhum ORM)
+
+O site deve seguir o seguinte banco de dados, e você deve criar as rotas necessárias para o CRUD de cada tabela e alguns endpoints adicionais que façam sentido para o gerenciamento de uma biblioteca.
+
+
+
+-- Tabela: Usuario
+CREATE TABLE Usuario (
+    id_usuario SERIAL PRIMARY KEY NOT NULL,
+    nome VARCHAR NOT NULL,
+	email VARCHAR,
+    endereco VARCHAR,
+    telefone VARCHAR
+);
+
+-- Tabela: Biblioteca
+CREATE TABLE Biblioteca (
+    id_biblioteca SERIAL PRIMARY KEY NOT NULL,
+    nome VARCHAR NOT NULL,
+    endereco VARCHAR
+);
+-- Tabela: Mídia
+CREATE TYPE MidiaTipo AS ENUM ('livro', 'revista', 'dvd', 'artigo');
+CREATE TABLE Titulo (
+    id_titulo SERIAL PRIMARY KEY NOT NULL,
+    tipo_midia MidiaTipo NOT NULL
+);
+
+
+CREATE TABLE Estoque(
+    id_estoque SERIAL PRIMARY KEY NOT NULL,
+    condicao VARCHAR,
+    id_titulo INT,
+    id_biblioteca INT,
+    FOREIGN KEY (id_titulo) REFERENCES Titulo(id_titulo),
+    FOREIGN KEY (id_biblioteca) REFERENCES Biblioteca(id_biblioteca)
+);
+
+
+-- Tabela: Emprestimo
+CREATE TABLE Emprestimo (
+    id_emprestimo SERIAL PRIMARY KEY NOT NULL,
+    data_emprestimo DATE NOT NULL,
+    data_devolucao_prevista DATE,
+    data_devolucao DATE,
+    id_estoque INT NOT NULL,
+    id_usuario INT NOT NULL,
+    FOREIGN KEY (id_estoque) REFERENCES Estoque(id_estoque),
+    FOREIGN KEY (id_usuario) REFERENCES Usuario(id_usuario)
+);
+
+-- Tabela: Penalizacao
+CREATE TABLE Penalizacao (
+    id_penalizacao SERIAL PRIMARY KEY NOT NULL,
+    descricao TEXT,
+	Final_penalizacao DATE,
+    id_usuario INT,
+    id_emprestimo INT,
+    FOREIGN KEY (id_usuario) REFERENCES Usuario(id_usuario),
+    FOREIGN KEY (id_emprestimo) REFERENCES Emprestimo(id_emprestimo)
+);
+
+-- Tabela: Livros
+CREATE TABLE Livros (
+    id_livro SERIAL PRIMARY KEY NOT NULL,
+    titulo VARCHAR NOT NULL,
+    ISBN VARCHAR,
+    numero_paginas INT,
+    editora VARCHAR,
+    data_publicacao DATE,
+    FOREIGN KEY (id_livro) REFERENCES Titulo(id_titulo)
+);
+
+-- Tabela: Revistas
+CREATE TABLE Revistas (
+    id_revista SERIAL PRIMARY KEY NOT NULL,
+    titulo VARCHAR NOT NULL,
+    ISSN VARCHAR,
+    periodicidade VARCHAR,
+    editora VARCHAR,
+    data_publicacao DATE,
+    FOREIGN KEY (id_revista) REFERENCES Titulo(id_titulo)
+);
+
+-- Tabela: DVDs
+CREATE TABLE DVDs (
+    id_dvd SERIAL PRIMARY KEY NOT NULL,
+    titulo VARCHAR NOT NULL,
+    ISAN VARCHAR,
+    duracao INT,
+    distribuidora VARCHAR,
+    data_lancamento DATE,
+    FOREIGN KEY (id_dvd) REFERENCES Titulo(id_titulo)
+);
+
+-- Tabela: Artigos
+CREATE TABLE Artigos (
+    id_artigo SERIAL PRIMARY KEY NOT NULL,
+    titulo VARCHAR NOT NULL,
+    DOI VARCHAR,
+    publicadora VARCHAR,
+    data_publicacao DATE,
+    FOREIGN KEY (id_artigo) REFERENCES Titulo(id_titulo)
+);
+
+-- Tabela: Autores
+CREATE TABLE Autores (
+    id_autor SERIAL PRIMARY KEY NOT NULL,
+    nome VARCHAR NOT NULL,
+    data_nascimento DATE,
+    data_falecimento DATE
+);
+
+-- Tabela: Autorias
+CREATE TABLE Autorias (
+    id_autorias SERIAL PRIMARY KEY NOT NULL,
+    id_autor INT NOT NULL,
+    id_titulo INT NOT NULL,
+    FOREIGN KEY (id_autor) REFERENCES Autores(id_autor),
+    FOREIGN KEY (id_titulo) REFERENCES Titulo(id_titulo)
+);
