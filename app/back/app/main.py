@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.api import usuarios, emprestimos, estoque
-from app.routers import revistas, dvds, artigos, biblioteca
+from app.routers import revistas, dvds, artigos, biblioteca, autor
 import logging
 
 # Configurar logging
@@ -53,6 +53,7 @@ app.include_router(revistas.router, prefix="/api/v1/revistas", tags=["revistas"]
 app.include_router(dvds.router, prefix="/api/v1/dvds", tags=["dvds"])
 app.include_router(artigos.router, prefix="/api/v1/artigos", tags=["artigos"])
 app.include_router(biblioteca.router, prefix="/api/v1/bibliotecas", tags=["bibliotecas"])
+app.include_router(autor.router, prefix="/api/v1/autores", tags=["autores"])
 
 # Rota raiz
 @app.get("/")

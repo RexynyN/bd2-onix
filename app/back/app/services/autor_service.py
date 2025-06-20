@@ -4,7 +4,6 @@ from app.schemas.schemas import AutorCreate, AutorUpdate, Autor
 from fastapi import HTTPException
 
 class AutorService:
-    
     def create_autor(self, autor: AutorCreate) -> Autor:
         with get_db_cursor() as cursor:
             query = '''

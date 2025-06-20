@@ -10,21 +10,18 @@ from app.schemas.biblioteca import (
 from app.schemas.base import BaseResponse
 from app.services.biblioteca_service import biblioteca_service
 
-router = APIRouter(prefix="/bibliotecas", tags=["bibliotecas"])
+router = APIRouter()
 
 @router.post("/", response_model=BibliotecaResponse, status_code=201)
 async def create_biblioteca(biblioteca: BibliotecaCreate):
     """Create a new library"""
     try:
         library_data = biblioteca.dict(exclude_unset=True)
-        library_id = biblioteca_service.create(library_data)
+        library = biblioteca_service.create_biblioteca(library_data)
         
-        if not library_id:
+        if not library:
             raise HTTPException(status_code=500, detail="Failed to create library")
-        
-        created_library = biblioteca_service.get_by_id(library_id)
-        return BibliotecaResponse(**created_library)
-        
+        return library
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -32,28 +29,29 @@ async def create_biblioteca(biblioteca: BibliotecaCreate):
 
 @router.get("/", response_model=BibliotecaListResponse)
 async def list_bibliotecas(
-    page: int = Query(1, ge=1, description="Page number"),
-    size: int = Query(10, ge=1, le=100, description="Items per page")
+    page: int = Query(0, ge=0, description="Page number"),
+    size: int = Query(100, ge=1, le=10000, description="Items per page")
 ):
     """Get list of libraries"""
     try:
-        libraries, total = biblioteca_service.get_all(page, size)
-        
+        libraries = biblioteca_service.get_bibliotecas(page, size)
+        leng = len(libraries)
         return BibliotecaListResponse(
-            data=[BibliotecaResponse(**library) for library in libraries],
-            total=total,
-            message=f"Found {total} libraries"
+            data=libraries,
+            total=leng,
+            message=f"Found {leng} libraries"
         )
     except Exception as e:
+        print(f"Error listing libraries: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/{library_id}", response_model=BibliotecaResponse)
 async def get_biblioteca(library_id: int):
     """Get library by ID"""
-    library = biblioteca_service.get_by_id(library_id)
+    library = biblioteca_service.get_biblioteca(library_id)
     if not library:
         raise HTTPException(status_code=404, detail="Library not found")
-    return BibliotecaResponse(**library)
+    return library
 
 @router.put("/{library_id}", response_model=BibliotecaResponse)
 async def update_biblioteca(library_id: int, biblioteca: BibliotecaUpdate):
@@ -66,13 +64,11 @@ async def update_biblioteca(library_id: int, biblioteca: BibliotecaUpdate):
         if not library_data:
             raise HTTPException(status_code=400, detail="No data provided for update")
         
-        success = biblioteca_service.update(library_id, library_data)
-        if not success:
+        library = biblioteca_service.update_biblioteca(library_id, library_data)
+        if not library:
             raise HTTPException(status_code=500, detail="Failed to update library")
         
-        updated_library = biblioteca_service.get_by_id(library_id)
-        return BibliotecaResponse(**updated_library)
-        
+        return library
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -85,12 +81,11 @@ async def delete_biblioteca(library_id: int):
         raise HTTPException(status_code=404, detail="Library not found")
     
     try:
-        success = biblioteca_service.delete(library_id)
+        success = biblioteca_service.delete_biblioteca(library_id)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to delete library")
         
         return BaseResponse(message="Library deleted successfully")
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
 

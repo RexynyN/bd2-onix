@@ -1,12 +1,14 @@
 "use client"
 
+import { CardDescription } from "@/components/ui/card"
+
 import type React from "react"
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import { Plus, Search, PenTool, Edit, Trash2 } from "lucide-react"
+import { Plus, Search, Edit, Trash2, PenTool } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -20,31 +22,39 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { autoresAPI, type Autor } from "@/lib/api"
+import { autoresAPI, type AutorResponse, type AutorCreate, type AutorUpdate } from "@/lib/api"
+import { Pagination } from "@/components/pagination"
+
+const ITEMS_PER_PAGE = 10
 
 export default function AutoresPage() {
-  const [autores, setAutores] = useState<Autor[]>([])
+  const [autores, setAutores] = useState<AutorResponse[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [editingAutor, setEditingAutor] = useState<Autor | null>(null)
+  const [editingAutor, setEditingAutor] = useState<AutorResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [formData, setFormData] = useState({
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalAutores, setTotalAutores] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const [formData, setFormData] = useState<AutorCreate>({
     nome: "",
-    data_nascimento: "",
-    data_falecimento: "",
+    data_nascimento: undefined,
+    data_falecimento: undefined,
   })
   const { toast } = useToast()
 
   useEffect(() => {
     fetchAutores()
-  }, [])
+  }, [currentPage])
 
   const fetchAutores = async () => {
     try {
       setLoading(true)
-      const response = await autoresAPI.getAll(0, 1000)
-      setAutores(response.data)
+      const response = await autoresAPI.getAll(currentPage, ITEMS_PER_PAGE)
+      setAutores(response.data.data)
+      setTotalAutores(response.data.total)
+      setTotalPages(Math.ceil(response.data.total / ITEMS_PER_PAGE))
     } catch (error) {
       console.error("Error fetching autores:", error)
       toast({
@@ -64,22 +74,21 @@ export default function AutoresPage() {
     setSubmitting(true)
 
     try {
-      const authorData = {
-        nome: formData.nome,
-        data_nascimento: formData.data_nascimento,
-        ...(formData.data_falecimento && { data_falecimento: formData.data_falecimento }),
-      }
-
       if (editingAutor) {
-        const response = await autoresAPI.update(editingAutor.id_autor, authorData)
+        const updateData: AutorUpdate = {
+          nome: formData.nome,
+          data_nascimento: formData.data_nascimento || null,
+          data_falecimento: formData.data_falecimento || null,
+        }
+        const response = await autoresAPI.update(editingAutor.id_autor, updateData)
         setAutores(autores.map((a) => (a.id_autor === editingAutor.id_autor ? response.data : a)))
         toast({
           title: "Autor atualizado",
           description: "Os dados do autor foram atualizados com sucesso.",
         })
       } else {
-        const response = await autoresAPI.create(authorData)
-        setAutores([...autores, response.data])
+        await autoresAPI.create(formData)
+        fetchAutores() // Refresh current page to show new author
         toast({
           title: "Autor criado",
           description: "Novo autor foi cadastrado com sucesso.",
@@ -88,7 +97,7 @@ export default function AutoresPage() {
 
       setIsDialogOpen(false)
       setEditingAutor(null)
-      setFormData({ nome: "", data_nascimento: "", data_falecimento: "" })
+      setFormData({ nome: "", data_nascimento: undefined, data_falecimento: undefined })
     } catch (error) {
       console.error("Error saving autor:", error)
       toast({
@@ -101,11 +110,11 @@ export default function AutoresPage() {
     }
   }
 
-  const handleEdit = (autor: Autor) => {
+  const handleEdit = (autor: AutorResponse) => {
     setEditingAutor(autor)
     setFormData({
       nome: autor.nome,
-      data_nascimento: autor.data_nascimento,
+      data_nascimento: autor.data_nascimento || "",
       data_falecimento: autor.data_falecimento || "",
     })
     setIsDialogOpen(true)
@@ -114,7 +123,7 @@ export default function AutoresPage() {
   const handleDelete = async (id: number) => {
     try {
       await autoresAPI.delete(id)
-      setAutores(autores.filter((a) => a.id_autor !== id))
+      fetchAutores() // Refresh current page
       toast({
         title: "Autor removido",
         description: "O autor foi removido do sistema.",
@@ -131,15 +140,21 @@ export default function AutoresPage() {
 
   const openNewAutorDialog = () => {
     setEditingAutor(null)
-    setFormData({ nome: "", data_nascimento: "", data_falecimento: "" })
+    setFormData({ nome: "", data_nascimento: undefined, data_falecimento: undefined })
     setIsDialogOpen(true)
   }
 
-  const formatDate = (dateString: string) => {
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const formatDate = (dateString?: string | null) => {
+    if (!dateString) return "-"
     return new Date(dateString).toLocaleDateString("pt-BR")
   }
 
-  const calculateAge = (nascimento: string, falecimento?: string) => {
+  const calculateAge = (nascimento?: string | null, falecimento?: string | null) => {
+    if (!nascimento) return "-"
     const birthDate = new Date(nascimento)
     const endDate = falecimento ? new Date(falecimento) : new Date()
     const age = endDate.getFullYear() - birthDate.getFullYear()
@@ -214,7 +229,6 @@ export default function AutoresPage() {
                     value={formData.data_nascimento}
                     onChange={(e) => setFormData({ ...formData, data_nascimento: e.target.value })}
                     className="col-span-3"
-                    required
                     disabled={submitting}
                   />
                 </div>
@@ -289,7 +303,10 @@ export default function AutoresPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Buscar Autores</CardTitle>
+          <CardTitle>Lista de Autores</CardTitle>
+          <CardDescription>
+            Página {currentPage} de {totalPages} - {totalAutores} autores cadastrados
+          </CardDescription>
           <div className="flex items-center space-x-2">
             <Search className="w-4 h-4 text-muted-foreground" />
             <Input
@@ -301,47 +318,43 @@ export default function AutoresPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {autores.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <PenTool className="mx-auto h-12 w-12 mb-4 opacity-50" />
-              <p>Nenhum autor cadastrado ainda.</p>
-              <p className="text-sm">Clique em "Novo Autor" para começar.</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Nascimento</TableHead>
-                  <TableHead>Falecimento</TableHead>
-                  <TableHead>Idade</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>Nome</TableHead>
+                <TableHead>Nascimento</TableHead>
+                <TableHead>Falecimento</TableHead>
+                <TableHead>Idade</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredAutores.map((autor) => (
+                <TableRow key={autor.id_autor}>
+                  <TableCell className="font-medium">{autor.id_autor}</TableCell>
+                  <TableCell className="font-medium">{autor.nome}</TableCell>
+                  <TableCell>{formatDate(autor.data_nascimento)}</TableCell>
+                  <TableCell>{formatDate(autor.data_falecimento) || "Vivo"}</TableCell>
+                  <TableCell>{calculateAge(autor.data_nascimento, autor.data_falecimento)} anos</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleEdit(autor)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleDelete(autor.id_autor)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredAutores.map((autor) => (
-                  <TableRow key={autor.id_autor}>
-                    <TableCell className="font-medium">{autor.id_autor}</TableCell>
-                    <TableCell className="font-medium">{autor.nome}</TableCell>
-                    <TableCell>{formatDate(autor.data_nascimento)}</TableCell>
-                    <TableCell>{autor.data_falecimento ? formatDate(autor.data_falecimento) : "Vivo"}</TableCell>
-                    <TableCell>{calculateAge(autor.data_nascimento, autor.data_falecimento)} anos</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => handleEdit(autor)}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleDelete(autor.id_autor)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+              ))}
+            </TableBody>
+          </Table>
+
+          <div className="mt-4">
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+          </div>
         </CardContent>
       </Card>
     </div>

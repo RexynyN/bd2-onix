@@ -42,6 +42,9 @@ def delete_usuario(id_usuario: int):
     return {"message": "Usuário excluído com sucesso"}
 
 @router.get("/emprestimos/ativos", response_model=List[Usuario])
-def get_usuarios_com_emprestimos_ativos():
+def get_usuarios_com_emprestimos_ativos(
+    skip: int = Query(0, ge=0, description="Número de registros para pular"),
+    limit: int = Query(100, ge=1, le=1000, description="Limite de registros")
+):
     """Listar usuários com empréstimos em andamento"""
-    return usuario_service.get_usuarios_com_emprestimos_em_andamento()
+    return usuario_service.get_usuarios_com_emprestimos_em_andamento(skip, limit)

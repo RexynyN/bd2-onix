@@ -1,5 +1,7 @@
 "use client"
 
+import { DialogTrigger } from "@/components/ui/dialog"
+
 import type React from "react"
 
 import { useState, useEffect } from "react"
@@ -16,20 +18,19 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { bibliotecasAPI, type Biblioteca } from "@/lib/api"
+import { bibliotecasAPI, type BibliotecaResponse, type BibliotecaCreate, type BibliotecaUpdate } from "@/lib/api"
 
 export default function BibliotecasPage() {
-  const [bibliotecas, setBibliotecas] = useState<Biblioteca[]>([])
+  const [bibliotecas, setBibliotecas] = useState<BibliotecaResponse[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [editingBiblioteca, setEditingBiblioteca] = useState<Biblioteca | null>(null)
+  const [editingBiblioteca, setEditingBiblioteca] = useState<BibliotecaResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<BibliotecaCreate>({
     nome: "",
     endereco: "",
   })
@@ -43,7 +44,7 @@ export default function BibliotecasPage() {
     try {
       setLoading(true)
       const response = await bibliotecasAPI.getAll()
-      setBibliotecas(response.data)
+      setBibliotecas(response.data.data) // Note: nested data structure
     } catch (error) {
       console.error("Error fetching bibliotecas:", error)
       toast({
@@ -68,8 +69,11 @@ export default function BibliotecasPage() {
 
     try {
       if (editingBiblioteca) {
-        // Atualizar biblioteca
-        const response = await bibliotecasAPI.update(editingBiblioteca.id_biblioteca, formData)
+        const updateData: BibliotecaUpdate = {
+          nome: formData.nome,
+          endereco: formData.endereco || null,
+        }
+        const response = await bibliotecasAPI.update(editingBiblioteca.id_biblioteca, updateData)
         setBibliotecas(
           bibliotecas.map((b) => (b.id_biblioteca === editingBiblioteca.id_biblioteca ? response.data : b)),
         )
@@ -78,8 +82,11 @@ export default function BibliotecasPage() {
           description: "Os dados da biblioteca foram atualizados com sucesso.",
         })
       } else {
-        // Criar nova biblioteca
-        const response = await bibliotecasAPI.create(formData)
+        const createData: BibliotecaCreate = {
+          nome: formData.nome,
+          endereco: formData.endereco || null,
+        }
+        const response = await bibliotecasAPI.create(createData)
         setBibliotecas([...bibliotecas, response.data])
         toast({
           title: "Biblioteca criada",
@@ -102,11 +109,11 @@ export default function BibliotecasPage() {
     }
   }
 
-  const handleEdit = (biblioteca: Biblioteca) => {
+  const handleEdit = (biblioteca: BibliotecaResponse) => {
     setEditingBiblioteca(biblioteca)
     setFormData({
       nome: biblioteca.nome,
-      endereco: biblioteca.endereco,
+      endereco: biblioteca.endereco || "",
     })
     setIsDialogOpen(true)
   }

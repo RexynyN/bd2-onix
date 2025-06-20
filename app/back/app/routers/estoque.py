@@ -100,6 +100,5 @@ async def delete_estoque(stock_id: int):
             raise HTTPException(status_code=500, detail="Failed to delete stock item")
         
         return BaseResponse(message="Stock item deleted successfully")
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")

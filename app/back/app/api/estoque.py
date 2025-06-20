@@ -27,9 +27,13 @@ def get_estoques(
     return estoque_service.get_estoques(skip=skip, limit=limit)
 
 @router.get("/biblioteca/{id_biblioteca}", response_model=List[Estoque])
-def get_estoque_por_biblioteca(id_biblioteca: int):
+def get_estoque_por_biblioteca(
+    id_biblioteca: int,
+    skip: int = Query(0, ge=0, description="Número de registros para pular"),
+    limit: int = Query(100, ge=1, le=1000, description="Limite de registros")
+):
     """Listar estoque de uma biblioteca específica"""
-    return estoque_service.get_estoque_por_biblioteca(id_biblioteca)
+    return estoque_service.get_estoque_por_biblioteca(id_biblioteca, skip, limit)
 
 @router.get("/disponibilidade/{id_titulo}", response_model=DisponibilidadeItem)
 def get_disponibilidade_item(id_titulo: int):

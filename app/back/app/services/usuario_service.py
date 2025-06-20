@@ -4,7 +4,6 @@ from app.schemas.schemas import UsuarioCreate, UsuarioUpdate, Usuario
 from fastapi import HTTPException
 
 class UsuarioService:
-    
     def create_usuario(self, usuario: UsuarioCreate) -> Usuario:
         with get_db_cursor() as cursor:
             query = '''
@@ -89,16 +88,18 @@ class UsuarioService:
             cursor.execute(query, (id_usuario,))
             return cursor.rowcount > 0
     
-    def get_usuarios_com_emprestimos_em_andamento(self) -> List[Usuario]:
+    def get_usuarios_com_emprestimos_em_andamento(self, skip: int=0, limit: int=0) -> List[Usuario]:
         with get_db_cursor() as cursor:
             query = '''
                 SELECT DISTINCT u.* 
                 FROM Usuario u
-                INNER JOIN Emprestimo e ON u.id_usuario = e.id_usuario
+                INNER JOIN Emprestimo e 
+                    ON u.id_usuario = e.id_usuario
                 WHERE e.data_devolucao IS NULL
                 ORDER BY u.nome
+                OFFSET %s LIMIT %s
             '''
-            cursor.execute(query)
+            cursor.execute(query, (skip, limit))
             results = cursor.fetchall()
             return [Usuario(**result) for result in results]
 

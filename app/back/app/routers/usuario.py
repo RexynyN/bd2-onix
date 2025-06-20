@@ -10,7 +10,7 @@ from app.schemas.usuario import (
 from app.schemas.base import BaseResponse, PaginationParams
 from app.services.usuario_service import usuario_service
 
-router = APIRouter(prefix="/usuarios", tags=["usuarios"])
+router = APIRouter()
 
 @router.post("/", response_model=UsuarioResponse, status_code=201)
 async def create_usuario(usuario: UsuarioCreate):

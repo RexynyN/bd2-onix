@@ -84,7 +84,7 @@ class EmprestimoService:
                     detail="Empréstimo não encontrado ou já devolvido"
                 )
     
-    def get_emprestimos_em_andamento(self) -> List[EmprestimoCompleto]:
+    def get_emprestimos_em_andamento(self, skip: int = 0, limit: int = 100) -> List[EmprestimoCompleto]:
         with get_db_cursor() as cursor:
             query = '''
                 SELECT 
@@ -107,8 +107,9 @@ class EmprestimoService:
                 LEFT JOIN Artigos a ON t.id_titulo = a.id_artigo
                 WHERE e.data_devolucao IS NULL
                 ORDER BY e.data_emprestimo DESC
+                OFFSET %s LIMIT %s
             '''
-            cursor.execute(query)
+            cursor.execute(query, (skip, limit))
             results = cursor.fetchall()
             
             emprestimos = []
@@ -131,7 +132,7 @@ class EmprestimoService:
                 ))
             return emprestimos
     
-    def get_emprestimos_vencidos(self) -> List[EmprestimoCompleto]:
+    def get_emprestimos_vencidos(self, skip: int = 0, limit: int = 100) -> List[EmprestimoCompleto]:
         with get_db_cursor() as cursor:
             query = '''
                 SELECT 
@@ -154,8 +155,9 @@ class EmprestimoService:
                 LEFT JOIN Artigos a ON t.id_titulo = a.id_artigo
                 WHERE e.data_devolucao IS NULL AND e.data_devolucao_prevista < %s
                 ORDER BY e.data_devolucao_prevista ASC
+                OFFSET %s LIMIT %s
             '''
-            cursor.execute(query, (date.today(),))
+            cursor.execute(query, (date.today(), skip, limit))
             results = cursor.fetchall()
             
             emprestimos = []

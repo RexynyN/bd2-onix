@@ -36,14 +36,20 @@ def devolver_item(
     return emprestimo_service.devolver_item(id_emprestimo, data_devolucao)
 
 @router.get("/em-andamento/", response_model=List[EmprestimoCompleto])
-def get_emprestimos_em_andamento():
+def get_emprestimos_em_andamento(
+    skip: int = Query(0, ge=0, description="Número de registros para pular"),
+    limit: int = Query(100, ge=1, le=1000, description="Limite de registros")
+):
     """Listar empréstimos em andamento com informações completas"""
-    return emprestimo_service.get_emprestimos_em_andamento()
+    return emprestimo_service.get_emprestimos_em_andamento(skip, limit)
 
 @router.get("/vencidos/", response_model=List[EmprestimoCompleto])
-def get_emprestimos_vencidos():
+def get_emprestimos_vencidos(
+    skip: int = Query(0, ge=0, description="Número de registros para pular"),
+    limit: int = Query(100, ge=1, le=1000, description="Limite de registros")
+):
     """Listar empréstimos vencidos"""
-    return emprestimo_service.get_emprestimos_vencidos()
+    return emprestimo_service.get_emprestimos_vencidos(skip, limit)
 
 @router.get("/relatorio/", response_model=RelatorioEmprestimos)
 def get_relatorio_emprestimos():

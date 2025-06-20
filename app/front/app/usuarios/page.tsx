@@ -20,7 +20,10 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { usuariosAPI, type Usuario } from "@/lib/api"
+import { usuariosAPI, type Usuario, type UsuarioCreate, type UsuarioUpdate } from "@/lib/api"
+import { Pagination } from "@/components/pagination"
+
+const ITEMS_PER_PAGE = 10
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
@@ -29,7 +32,9 @@ export default function UsuariosPage() {
   const [editingUser, setEditingUser] = useState<Usuario | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [formData, setFormData] = useState({
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalUsers, setTotalUsers] = useState(0)
+  const [formData, setFormData] = useState<UsuarioCreate>({
     nome: "",
     email: "",
     endereco: "",
@@ -39,13 +44,20 @@ export default function UsuariosPage() {
 
   useEffect(() => {
     fetchUsuarios()
-  }, [])
+  }, [currentPage])
 
   const fetchUsuarios = async () => {
     try {
       setLoading(true)
-      const response = await usuariosAPI.getAll()
+      const skip = (currentPage - 1) * ITEMS_PER_PAGE
+      const response = await usuariosAPI.getAll(skip, ITEMS_PER_PAGE)
       setUsuarios(response.data)
+      // Note: API doesn't return total count, so we estimate based on returned data
+      setTotalUsers(
+        response.data.length === ITEMS_PER_PAGE
+          ? currentPage * ITEMS_PER_PAGE + 1
+          : (currentPage - 1) * ITEMS_PER_PAGE + response.data.length,
+      )
     } catch (error) {
       console.error("Error fetching usuarios:", error)
       toast({
@@ -61,8 +73,10 @@ export default function UsuariosPage() {
   const filteredUsuarios = usuarios.filter(
     (usuario) =>
       usuario.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      usuario.email.toLowerCase().includes(searchTerm.toLowerCase()),
+      (usuario.email && usuario.email.toLowerCase().includes(searchTerm.toLowerCase())),
   )
+
+  const totalPages = Math.ceil(totalUsers / ITEMS_PER_PAGE)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -70,17 +84,28 @@ export default function UsuariosPage() {
 
     try {
       if (editingUser) {
-        // Atualizar usuário
-        const response = await usuariosAPI.update(editingUser.id_usuario, formData)
+        const updateData: UsuarioUpdate = {
+          nome: formData.nome,
+          email: formData.email || null,
+          endereco: formData.endereco || null,
+          telefone: formData.telefone || null,
+        }
+        const response = await usuariosAPI.update(editingUser.id_usuario, updateData)
         setUsuarios(usuarios.map((u) => (u.id_usuario === editingUser.id_usuario ? response.data : u)))
         toast({
           title: "Usuário atualizado",
           description: "Os dados do usuário foram atualizados com sucesso.",
         })
       } else {
-        // Criar novo usuário
-        const response = await usuariosAPI.create(formData)
-        setUsuarios([...usuarios, response.data])
+        const createData: UsuarioCreate = {
+          nome: formData.nome,
+          email: formData.email || null,
+          endereco: formData.endereco || null,
+          telefone: formData.telefone || null,
+        }
+        const response = await usuariosAPI.create(createData)
+        // Refresh the current page to show the new user
+        fetchUsuarios()
         toast({
           title: "Usuário criado",
           description: "Novo usuário foi cadastrado com sucesso.",
@@ -106,9 +131,9 @@ export default function UsuariosPage() {
     setEditingUser(usuario)
     setFormData({
       nome: usuario.nome,
-      email: usuario.email,
-      endereco: usuario.endereco,
-      telefone: usuario.telefone,
+      email: usuario.email || "",
+      endereco: usuario.endereco || "",
+      telefone: usuario.telefone || "",
     })
     setIsDialogOpen(true)
   }
@@ -116,7 +141,7 @@ export default function UsuariosPage() {
   const handleDelete = async (id: number) => {
     try {
       await usuariosAPI.delete(id)
-      setUsuarios(usuarios.filter((u) => u.id_usuario !== id))
+      fetchUsuarios() // Refresh current page
       toast({
         title: "Usuário removido",
         description: "O usuário foi removido do sistema.",
@@ -135,6 +160,10 @@ export default function UsuariosPage() {
     setEditingUser(null)
     setFormData({ nome: "", email: "", endereco: "", telefone: "" })
     setIsDialogOpen(true)
+  }
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
   }
 
   if (loading) {
@@ -207,7 +236,6 @@ export default function UsuariosPage() {
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="col-span-3"
-                    required
                     disabled={submitting}
                   />
                 </div>
@@ -220,7 +248,6 @@ export default function UsuariosPage() {
                     value={formData.endereco}
                     onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
                     className="col-span-3"
-                    required
                     disabled={submitting}
                   />
                 </div>
@@ -233,7 +260,6 @@ export default function UsuariosPage() {
                     value={formData.telefone}
                     onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
                     className="col-span-3"
-                    required
                     disabled={submitting}
                   />
                 </div>
@@ -251,7 +277,9 @@ export default function UsuariosPage() {
       <Card>
         <CardHeader>
           <CardTitle>Lista de Usuários</CardTitle>
-          <CardDescription>{usuarios.length} usuários cadastrados</CardDescription>
+          <CardDescription>
+            Página {currentPage} de {totalPages} - {totalUsers} usuários cadastrados
+          </CardDescription>
           <div className="flex items-center space-x-2">
             <Search className="w-4 h-4 text-muted-foreground" />
             <Input
@@ -279,9 +307,9 @@ export default function UsuariosPage() {
                 <TableRow key={usuario.id_usuario}>
                   <TableCell className="font-medium">{usuario.id_usuario}</TableCell>
                   <TableCell>{usuario.nome}</TableCell>
-                  <TableCell>{usuario.email}</TableCell>
-                  <TableCell>{usuario.telefone}</TableCell>
-                  <TableCell>{usuario.endereco}</TableCell>
+                  <TableCell>{usuario.email || "-"}</TableCell>
+                  <TableCell>{usuario.telefone || "-"}</TableCell>
+                  <TableCell>{usuario.endereco || "-"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" size="sm" onClick={() => handleEdit(usuario)}>
@@ -296,6 +324,10 @@ export default function UsuariosPage() {
               ))}
             </TableBody>
           </Table>
+
+          <div className="mt-4">
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+          </div>
         </CardContent>
       </Card>
     </div>

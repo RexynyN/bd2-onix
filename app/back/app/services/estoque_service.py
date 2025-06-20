@@ -46,10 +46,10 @@ class EstoqueService:
             results = cursor.fetchall()
             return [Estoque(**result) for result in results]
     
-    def get_estoque_por_biblioteca(self, id_biblioteca: int) -> List[Estoque]:
+    def get_estoque_por_biblioteca(self, id_biblioteca: int, skip: int = 0, limit: int = 100) -> List[Estoque]:
         with get_db_cursor() as cursor:
-            query = "SELECT * FROM Estoque WHERE id_biblioteca = %s ORDER BY id_estoque"
-            cursor.execute(query, (id_biblioteca,))
+            query = "SELECT * FROM Estoque WHERE id_biblioteca = %s ORDER BY id_estoque OFFSET %s LIMIT %s"
+            cursor.execute(query, (id_biblioteca, skip, limit))
             results = cursor.fetchall()
             return [Estoque(**result) for result in results]
     

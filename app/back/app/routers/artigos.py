@@ -20,6 +20,7 @@ async def get_artigo(artigo_id: int):
     artigo = await artigo_service.get_artigo_by_id(artigo_id)
     if not artigo:
         raise HTTPException(status_code=404, detail="Artigo não encontrado")
+    
     return artigo
 
 @router.get("/", response_model=List[ArtigoResponse])

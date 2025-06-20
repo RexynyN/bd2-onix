@@ -5,7 +5,7 @@ from typing import Optional
 class DVDBase(BaseModel):
     titulo: str = Field(..., min_length=1, max_length=255)
     ISAN: Optional[str] = Field(None, max_length=30)
-    duracao: Optional[int] = Field(None, gt=0)
+    duracao: Optional[int] = Field(None, ge=0)
     distribuidora: Optional[str] = Field(None, max_length=255)
     data_lancamento: Optional[date] = None
 

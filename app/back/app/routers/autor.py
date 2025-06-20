@@ -8,12 +8,12 @@ from app.schemas.autor import (
 )
 from app.schemas.base import BaseResponse
 from app.services.base_service import BaseService
+from app.services.autor_service import autor_service
 
-router = APIRouter(prefix="/autores", tags=["autores"])
+router = APIRouter()
 
 # Initialize services
-autor_service = BaseService("Autores", "id_autor")
-autorias_service = BaseService("Autorias", "id_autorias")
+
 
 @router.post("/", response_model=AutorResponse, status_code=201)
 async def create_autor(autor: AutorCreate):
@@ -40,15 +40,15 @@ async def list_autores(
 ):
     """Get list of authors"""
     try:
-        authors, total = autor_service.get_all(page, size)
-        
+        authors = autor_service.get_autores(page, size)
+        leng = len(authors)
         return AutorListResponse(
-            data=[AutorResponse(**author) for author in authors],
-            total=total,
-            message=f"Found {total} authors"
+            data=authors,
+            total=leng,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error")
+        print(e)
+        # raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/{author_id}", response_model=AutorResponse)
 async def get_autor(author_id: int):
@@ -103,12 +103,12 @@ async def create_autoria(autoria: AutoriasCreate):
     """Create a new authorship relationship"""
     try:
         authorship_data = autoria.dict(exclude_unset=True)
-        authorship_id = autorias_service.create(authorship_data)
+        authorship_id = autor_service.create(authorship_data)
         
         if not authorship_id:
             raise HTTPException(status_code=500, detail="Failed to create authorship")
         
-        created_authorship = autorias_service.get_by_id(authorship_id)
+        created_authorship = autor_service.get_by_id(authorship_id)
         return AutoriasResponse(**created_authorship)
         
     except ValueError as e:
@@ -131,7 +131,7 @@ async def list_autorias(
         if id_titulo:
             filters['id_titulo'] = id_titulo
             
-        authorships, total = autorias_service.get_all(page, size, filters)
+        authorships, total = autor_service.get_all(page, size, filters)
         
         return AutoriasListResponse(
             data=[AutoriasResponse(**authorship) for authorship in authorships],

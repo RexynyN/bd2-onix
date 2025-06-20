@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Users, Building2, BookOpen, Calendar, TrendingUp, AlertTriangle } from "lucide-react"
-import { usuariosAPI, bibliotecasAPI, titulosAPI, emprestimosAPI } from "@/lib/api"
+import { usuariosAPI, bibliotecasAPI, estoqueAPI, emprestimosAPI } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
 
 interface DashboardStats {
@@ -36,13 +36,14 @@ export default function Dashboard() {
         const [usuariosRes, bibliotecasRes, titulosRes, relatorioRes] = await Promise.all([
           usuariosAPI.getAll(0, 1000),
           bibliotecasAPI.getAll(0, 1000),
-          titulosAPI.getAll(0, 1000),
+          estoqueAPI.getAll(0, 1000),
           emprestimosAPI.getRelatorio(),
         ])
-
+        
+        console.log(bibliotecasRes);
         setStats({
           totalUsuarios: usuariosRes.data.length,
-          totalBibliotecas: bibliotecasRes.data.length,
+          totalBibliotecas: bibliotecasRes.data.total,
           totalTitulos: titulosRes.data.length,
           emprestimosAtivos: relatorioRes.data.emprestimos_em_andamento,
           emprestimosVencidos: relatorioRes.data.emprestimos_vencidos,
