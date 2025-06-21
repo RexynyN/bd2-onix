@@ -207,3 +207,11 @@ CREATE INDEX idx_autores_nome ON Autores(nome);
 CREATE INDEX idx_autorias_id_autor ON Autorias(id_autor);
 CREATE INDEX idx_autorias_id_titulo ON Autorias(id_titulo);
 
+
+
+-- Indices Trigram
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX ON livros USING gin (lower(titulo) gin_trgm_ops);
+CREATE INDEX ON artigos USING gin (lower(titulo) gin_trgm_ops);
+CREATE INDEX ON dvds USING gin (lower(titulo) gin_trgm_ops);
+CREATE INDEX ON revistas USING gin (lower(titulo) gin_trgm_ops);
