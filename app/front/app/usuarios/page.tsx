@@ -62,7 +62,7 @@ export default function UsuariosPage() {
       console.error("Error fetching usuarios:", error)
       toast({
         title: "Erro ao carregar usuários",
-        description: "Não foi possível carregar a lista de usuários.",
+        description: error.response.data.detail || "Não foi possível carregar a lista de usuários.",
         variant: "destructive",
       })
     } finally {
@@ -119,7 +119,7 @@ export default function UsuariosPage() {
       console.error("Error saving usuario:", error)
       toast({
         title: "Erro ao salvar usuário",
-        description: "Não foi possível salvar o usuário. Tente novamente.",
+        description: error.response.data.detail,
         variant: "destructive",
       })
     } finally {
@@ -150,7 +150,7 @@ export default function UsuariosPage() {
       console.error("Error deleting usuario:", error)
       toast({
         title: "Erro ao remover usuário",
-        description: "Não foi possível remover o usuário. Tente novamente.",
+        description: error.response.data.detail,
         variant: "destructive",
       })
     }

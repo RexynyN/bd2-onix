@@ -1,6 +1,6 @@
 from typing import List, Optional
 from app.database.connection import get_db_cursor
-from app.schemas.schemas import EstoqueCreate, EstoqueUpdate, Estoque, DisponibilidadeItem
+from app.schemas.schemas import EstoqueCreate, EstoqueUpdate, Estoque, DisponibilidadeItem, TituloSearch
 from fastapi import HTTPException
 
 class EstoqueService:
@@ -146,5 +146,48 @@ class EstoqueService:
             query = "DELETE FROM Estoque WHERE id_estoque = %s"
             cursor.execute(query, (id_estoque,))
             return cursor.rowcount > 0
+        
+    def search_from_title(self, search_query: str) -> List[Estoque]:
+        with get_db_cursor() as cursor:
+            search_query = f"%{search_query}%"
+            query = '''
+                SELECT 
+                    t.id_titulo,
+                    t.tipo_midia,
+                    COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) as titulo
+                FROM titulo AS t
+                LEFT JOIN Livros AS l ON t.id_titulo = l.id_livro
+                LEFT JOIN Revistas AS r ON t.id_titulo = r.id_revista
+                LEFT JOIN DVDs AS d ON t.id_titulo = d.id_dvd
+                LEFT JOIN Artigos AS a ON t.id_titulo = a.id_artigo
+                WHERE a.titulo ILIKE %s
+                    OR r.titulo ILIKE %s
+                    OR l.titulo ILIKE %s
+                    OR d.titulo ILIKE %s
+                ORDER BY COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) ASC 
+                LIMIT 200; 
+            '''
+            cursor.execute(query, tuple([search_query for _ in range(4)]))
+            results = cursor.fetchall()
+            return [TituloSearch(**result) for result in results]
+
+    def search_from_estoque(self, search_query: str) -> List[Estoque]:
+        with get_db_cursor() as cursor:
+            search_query = f"%{search_query}%"
+            query = '''
+                SELECT 
+                    e.id_estoque,
+                    e.condicao,
+                    e.id_titulo,
+                    e.id_biblioteca
+                FROM Estoque AS e
+                JOIN Titulo AS t ON e.id_titulo = t.id_titulo
+                WHERE t.titulo ILIKE %s
+                ORDER BY e.id_estoque ASC 
+                LIMIT 200; 
+            '''
+            cursor.execute(query, (search_query,))
+            results = cursor.fetchall()
+            return [Estoque(**result) for result in results]
 
 estoque_service = EstoqueService()

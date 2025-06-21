@@ -49,7 +49,7 @@ export default function BibliotecasPage() {
       console.error("Error fetching bibliotecas:", error)
       toast({
         title: "Erro ao carregar bibliotecas",
-        description: "Não foi possível carregar a lista de bibliotecas.",
+        description: error.response.data.detail,
         variant: "destructive",
       })
     } finally {
@@ -101,7 +101,7 @@ export default function BibliotecasPage() {
       console.error("Error saving biblioteca:", error)
       toast({
         title: "Erro ao salvar biblioteca",
-        description: "Não foi possível salvar a biblioteca. Tente novamente.",
+        description: error.response.data.detail,
         variant: "destructive",
       })
     } finally {
@@ -130,7 +130,7 @@ export default function BibliotecasPage() {
       console.error("Error deleting biblioteca:", error)
       toast({
         title: "Erro ao remover biblioteca",
-        description: "Não foi possível remover a biblioteca. Tente novamente.",
+        description: error.response.data.detail,
         variant: "destructive",
       })
     }

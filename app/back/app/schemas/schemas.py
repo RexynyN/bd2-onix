@@ -80,6 +80,11 @@ class EstoqueUpdate(BaseModel):
     id_titulo: Optional[int] = None
     id_biblioteca: Optional[int] = None
 
+class TituloSearch(BaseModel):
+    id_titulo: int
+    titulo: str
+    tipo_midia: MidiaTipo
+
 class Estoque(EstoqueBase):
     id_estoque: int
     

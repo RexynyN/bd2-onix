@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
-from app.schemas.schemas import Estoque, EstoqueCreate, EstoqueUpdate, DisponibilidadeItem
+from app.schemas.schemas import Estoque, EstoqueCreate, EstoqueUpdate, DisponibilidadeItem, TituloSearch
 from app.services.estoque_service import estoque_service
 
 router = APIRouter()
@@ -57,3 +57,26 @@ def delete_estoque(id_estoque: int):
     if not estoque_service.delete_estoque(id_estoque):
         raise HTTPException(status_code=404, detail="Item do estoque não encontrado")
     return {"message": "Item removido do estoque com sucesso"}
+
+
+@router.get("/pesquisar/titulo", response_model=List[TituloSearch])
+def search_from_title(
+    title: Optional[str] = Query(None, description="Título do item a ser pesquisado")
+):
+    """Buscar itens do estoque a partir do título"""
+    estoque_service.search_from_title()
+    if not title:
+        raise HTTPException(status_code=400, detail="Título é obrigatório para busca")
+    return estoque_service.search_from_title()
+
+
+@router.get("/pesquisar/estoque", response_model=List[Estoque])
+def search_from_estoque(
+    id_estoque: Optional[int] = Query(None, description="ID do estoque a ser pesquisado"),
+    id_biblioteca: Optional[int] = Query(None, description="ID da biblioteca a ser pesquisada")
+):
+    """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
+    if not id_estoque and not id_biblioteca:
+        raise HTTPException(status_code=400, detail="Pelo menos um parâmetro (id_estoque ou id_biblioteca) deve ser fornecido")
+    
+    return estoque_service.search_from_estoque(id_estoque, id_biblioteca)

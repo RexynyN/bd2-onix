@@ -211,7 +211,7 @@ export default function EmprestimosPage() {
       console.error("Error creating emprestimo:", error)
       toast({
         title: "Erro ao criar empréstimo",
-        description: "Não foi possível criar o empréstimo. Tente novamente.",
+        description: error.response.data.detail,
         variant: "destructive",
       })
     } finally {
@@ -238,7 +238,7 @@ export default function EmprestimosPage() {
       console.error("Error returning emprestimo:", error)
       toast({
         title: "Erro ao registrar devolução",
-        description: "Não foi possível registrar a devolução. Tente novamente.",
+        description: error.response.data.detail,
         variant: "destructive",
       })
     }
