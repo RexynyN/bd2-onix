@@ -145,7 +145,7 @@ export default function EstoquePage() {
       console.error("Error fetching estoques:", error)
       toast({
         title: "Erro ao carregar estoque",
-        description: "Não foi possível carregar os itens do estoque.",
+        description: error?.response.data.detail || "Não foi possível carregar os itens do estoque.",
         variant: "destructive",
       })
     } finally {
@@ -209,7 +209,7 @@ export default function EstoquePage() {
       console.error("Error searching estoque:", error)
       toast({
         title: "Erro na busca",
-        description: "Não foi possível realizar a busca no estoque.",
+        description: error?.response.data.detail || "Não foi possível realizar a busca no estoque.",
         variant: "destructive",
       })
     } finally {
@@ -288,7 +288,7 @@ export default function EstoquePage() {
       console.error("Error saving estoque:", error)
       toast({
         title: "Erro ao salvar estoque",
-        description: "Não foi possível salvar o item do estoque.",
+        description: error?.response.data.detail || "Não foi possível salvar o item do estoque.",
         variant: "destructive",
       })
     }
@@ -315,7 +315,7 @@ export default function EstoquePage() {
       console.error("Error deleting estoque:", error)
       toast({
         title: "Erro ao remover item",
-        description: "Não foi possível remover o item do estoque.",
+        description: error?.response.data.detail || "Não foi possível remover o item do estoque.",
         variant: "destructive",
       })
     }

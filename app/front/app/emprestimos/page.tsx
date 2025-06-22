@@ -186,7 +186,7 @@ export default function EmprestimosPage() {
       console.error("Error searching emprestimos:", error)
       toast({
         title: "Erro na busca",
-        description: "Não foi possível realizar a busca de empréstimos.",
+        description: error?.response.data.detail || "Não foi possível realizar a busca de empréstimos.",
         variant: "destructive",
       })
     } finally {
@@ -250,7 +250,7 @@ export default function EmprestimosPage() {
       console.error("Error creating emprestimo:", error)
       toast({
         title: "Erro ao criar empréstimo",
-        description: "Não foi possível criar o empréstimo. Tente novamente.",
+        description: error?.response.data.detail || "Não foi possível criar o empréstimo. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -277,7 +277,7 @@ export default function EmprestimosPage() {
       console.error("Error returning emprestimo:", error)
       toast({
         title: "Erro ao registrar devolução",
-        description: "Não foi possível registrar a devolução. Tente novamente.",
+        description: error?.response.data.detail || "Não foi possível registrar a devolução. Tente novamente.",
         variant: "destructive",
       })
     }

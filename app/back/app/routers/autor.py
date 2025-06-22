@@ -85,11 +85,8 @@ async def update_autor(author_id: int, autor: AutorUpdate):
 @router.delete("/{author_id}", response_model=BaseResponse)
 async def delete_autor(author_id: int):
     """Delete author"""
-    if not autor_service.exists(author_id):
-        raise HTTPException(status_code=404, detail="Author not found")
-    
     try:
-        success = autor_service.delete(author_id)
+        success = autor_service.delete_autor(author_id)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to delete author")
         

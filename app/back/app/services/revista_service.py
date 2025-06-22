@@ -5,6 +5,7 @@ from app.schemas.revista import RevistaCreate, RevistaUpdate, RevistaResponse, R
 import logging
 
 from app.schemas.schemas import Revista
+from app.services import estoque_service
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class RevistaService:
                 ))
                 
                 result = cursor.fetchone()
-                
+                # estoque_service.reload_materialized_view()  # Recarregar o serviço de estoque após criar uma revista
                 return RevistaResponse(**result)
                 
             except Exception as e:
@@ -150,13 +151,14 @@ class RevistaService:
             try:
                 # Verificar se existe no estoque
                 check_query = """
-                    SELECT COUNT(*) FROM Estoque e
+                    SELECT COUNT(*) AS counter
+                    FROM Estoque e
                     INNER JOIN Titulo t ON e.id_titulo = t.id_titulo
                     WHERE t.id_titulo = %s
                 """
                 
                 cursor.execute(check_query, (revista_id,))
-                count = cursor.fetchone()[0]
+                count = cursor.fetchone()['counter']
                 
                 if count > 0:
                     raise ValueError("Não é possível excluir revista que possui exemplares no estoque")

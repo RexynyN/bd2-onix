@@ -29,7 +29,7 @@ class MediaService:
                         "INSERT INTO Titulo (tipo_midia) VALUES (%s) RETURNING id_titulo",
                         (media_type,)
                     )
-                    title_id = cursor.fetchone()[0]
+                    title_id = cursor.fetchone()['id_titulo']
                     
                     # Add title_id to media_data
                     media_data[f'id_{media_type.lower()}'] = title_id
@@ -145,7 +145,7 @@ class MediaService:
         
         # Count query
         count_query = f"""
-            SELECT COUNT(*) FROM (
+            SELECT COUNT(*) as counter FROM (
                 {' UNION ALL '.join(union_queries)}
             ) AS combined_results
         """
@@ -156,7 +156,7 @@ class MediaService:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 # Get total count
                 cursor.execute(count_query, params)
-                total = cursor.fetchone()[0]
+                total = cursor.fetchone()['counter']
                 
                 # Get data
                 cursor.execute(full_query, params_with_pagination)

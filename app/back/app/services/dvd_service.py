@@ -5,6 +5,8 @@ from app.schemas.dvd import DVDCreate, DVDUpdate, DVDResponse, DVDWithAuthors
 from app.schemas.schemas import DVD
 import logging
 
+from app.services import estoque_service
+
 logger = logging.getLogger(__name__)
 
 class DVDService:
@@ -40,7 +42,7 @@ class DVDService:
                 ))
                 
                 result = cursor.fetchone()
-                
+                # estoque_service.reload_materialized_view()  
                 return DVDResponse(**result)
                 
             except Exception as e:
@@ -145,12 +147,13 @@ class DVDService:
             try:
                 # Verificar se existe no estoque
                 check_query = """
-                    SELECT COUNT(*) FROM Estoque e
+                    SELECT COUNT(*) AS counter
+                    FROM Estoque e
                     INNER JOIN Titulo t ON e.id_titulo = t.id_titulo
                     WHERE t.id_titulo = %s
                 """
                 cursor.execute(check_query, (dvd_id,))
-                count = cursor.fetchone()[0]
+                count = cursor.fetchone()['counter']
                 
                 if count > 0:
                     raise ValueError("Não é possível excluir DVD que possui exemplares no estoque")

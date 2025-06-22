@@ -220,7 +220,7 @@ class EmprestimoService:
                 LIMIT 200 
             """
             param = f"%{q}%"
-            cursor.execute(query, tuple([param for _ in range(4)]))
+            cursor.execute(query, tuple([param for _ in range(5)]))
             results = cursor.fetchall()
             return [Emprestimo(**row) for row in results]
 

@@ -63,7 +63,7 @@ class BaseService:
                 where_clause = "WHERE " + " AND ".join(conditions)
         
         # Count query
-        count_query = f"SELECT COUNT(*) FROM {self.table_name} {where_clause}"
+        count_query = f"SELECT COUNT(*) as counter FROM {self.table_name} {where_clause}"
         
         # Data query
         data_query = f"""
@@ -76,7 +76,7 @@ class BaseService:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 # Get total count
                 cursor.execute(count_query, params)
-                total = cursor.fetchone()[0]
+                total = cursor.fetchone()['counter']
                 
                 # Get data
                 cursor.execute(data_query, params + [size, offset])

@@ -4,7 +4,7 @@ import * as React from "react"
 import { Check, ChevronsUpDown, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { estoqueAPI, type TituloSearch } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
@@ -114,16 +114,18 @@ export function SearchableSelect({
         <Command>
           <div className="flex items-center border-b px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-            <CommandInput
+            <input
               placeholder={searchPlaceholder}
               value={searchTerm}
-              onValueChange={setSearchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>
-          <CommandList>
+          <CommandList className="max-h-[200px] overflow-auto">
             {loading && <div className="py-6 text-center text-sm">Buscando títulos...</div>}
-            {!loading && searchTerm && options.length === 0 && <CommandEmpty>Nenhum título encontrado.</CommandEmpty>}
+            {!loading && searchTerm && options.length === 0 && (
+              <div className="py-6 text-center text-sm">Nenhum título encontrado.</div>
+            )}
             {!loading && !searchTerm && (
               <div className="py-6 text-center text-sm text-muted-foreground">Digite para buscar títulos...</div>
             )}
@@ -134,7 +136,7 @@ export function SearchableSelect({
                     key={option.id_titulo}
                     value={option.id_titulo.toString()}
                     onSelect={() => handleSelect(option)}
-                    className="flex items-center justify-between"
+                    className="flex items-center justify-between cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
                       <Check

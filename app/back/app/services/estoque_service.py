@@ -159,7 +159,7 @@ class EstoqueService:
                 WHERE titulo ILIKE %s
                 LIMIT 200; 
             '''
-            cursor.execute(query, tuple([search_query for _ in range(4)]))
+            cursor.execute(query, tuple([search_query for _ in range(1)]))
             results = cursor.fetchall()
             return [TituloSearch(**result) for result in results]
 
@@ -182,7 +182,7 @@ class EstoqueService:
             results = cursor.fetchall()
             return [Estoque(**result) for result in results]
     
-    def reload_materialized_views(self):
+    def reload_materialized_view(self):
         with get_db_cursor() as cursor:
             cursor.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_titulos_completos;")
 

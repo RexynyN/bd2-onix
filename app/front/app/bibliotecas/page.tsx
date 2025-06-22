@@ -52,7 +52,7 @@ export default function BibliotecasPage() {
       console.error("Error fetching bibliotecas:", error)
       toast({
         title: "Erro ao carregar bibliotecas",
-        description: "Não foi possível carregar a lista de bibliotecas.",
+        description: error?.response.data.detail || "Não foi possível carregar a lista de bibliotecas.",
         variant: "destructive",
       })
     } finally {
@@ -75,7 +75,7 @@ export default function BibliotecasPage() {
       console.error("Error searching bibliotecas:", error)
       toast({
         title: "Erro na busca",
-        description: "Não foi possível realizar a busca de bibliotecas.",
+        description: error?.response.data.detail || "Não foi possível realizar a busca de bibliotecas.",
         variant: "destructive",
       })
     } finally {
@@ -131,7 +131,7 @@ export default function BibliotecasPage() {
       console.error("Error saving biblioteca:", error)
       toast({
         title: "Erro ao salvar biblioteca",
-        description: "Não foi possível salvar a biblioteca. Tente novamente.",
+        description: error?.response.data.detail || "Não foi possível salvar a biblioteca. Tente novamente.",
         variant: "destructive",
       })
     } finally {

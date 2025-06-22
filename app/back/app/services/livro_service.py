@@ -3,6 +3,8 @@ from app.database.connection import get_db_cursor
 from app.schemas.schemas import LivroCreate, LivroUpdate, Livro, MidiaTipo
 from fastapi import HTTPException
 
+from app.services import estoque_service
+
 class LivroService:
     
     def create_livro(self, livro: LivroCreate) -> Livro:
@@ -30,6 +32,7 @@ class LivroService:
                     livro.data_publicacao
                 ))
                 result = cursor.fetchone()
+                # estoque_service.reload_materialized_view()  
                 return Livro(**result)
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Erro ao criar livro: {str(e)}")

@@ -128,6 +128,13 @@ export interface RevistaCreate {
   data_publicacao?: string | null
 }
 
+export interface RelatorioEmprestimos {
+    total_emprestimos: number
+    emprestimos_em_andamento: number
+    emprestimos_vencidos: number
+    emprestimos_devolvidos: number
+}
+
 export interface DVDResponse {
   id_dvd: number
   titulo: string
@@ -334,6 +341,7 @@ export const emprestimosAPI = {
     const params = dataDevolucao ? `?data_devolucao=${dataDevolucao}` : ""
     return apiClient.request<Emprestimo>(`/api/v1/emprestimos/${id}/devolver${params}`, { method: "PATCH" })
   },
+  getRelatorio: () => apiClient.get<RelatorioEmprestimos>("/api/v1/emprestimos/relatorio/"),
   getEmAndamento: (skip = 0, limit = 100) =>
     apiClient.get<EmprestimoCompleto[]>(`/api/v1/emprestimos/em-andamento/?skip=${skip}&limit=${limit}`),
   getVencidos: (skip = 0, limit = 100) =>

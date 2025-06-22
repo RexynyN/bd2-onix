@@ -30,7 +30,7 @@ class AutorService:
     
     def get_autores(self, skip: int = 0, limit: int = 100) -> List[Autor]:
         with get_db_cursor() as cursor:
-            query = "SELECT * FROM Autores ORDER BY nome OFFSET %s LIMIT %s"
+            query = "SELECT * FROM Autores ORDER BY nome DESC OFFSET %s LIMIT %s"
             cursor.execute(query, (skip, limit))
             results = cursor.fetchall()
             return [Autor(**result) for result in results]

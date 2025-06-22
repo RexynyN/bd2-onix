@@ -62,7 +62,7 @@ export default function AutoresPage() {
       console.error("Error fetching autores:", error)
       toast({
         title: "Erro ao carregar autores",
-        description: "Não foi possível carregar a lista de autores.",
+        description: error?.response.data.detail || "Não foi possível carregar a lista de autores.",
         variant: "destructive",
       })
     } finally {
@@ -85,7 +85,7 @@ export default function AutoresPage() {
       console.error("Error searching autores:", error)
       toast({
         title: "Erro na busca",
-        description: "Não foi possível realizar a busca de autores.",
+        description: error?.response.data.detail || "Não foi possível realizar a busca de autores.",
         variant: "destructive",
       })
     } finally {
@@ -136,7 +136,7 @@ export default function AutoresPage() {
       console.error("Error saving autor:", error)
       toast({
         title: "Erro ao salvar autor",
-        description: "Não foi possível salvar o autor. Tente novamente.",
+        description: error?.response.data.detail || "Não foi possível salvar o autor. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -166,7 +166,7 @@ export default function AutoresPage() {
       console.error("Error deleting autor:", error)
       toast({
         title: "Erro ao remover autor",
-        description: "Não foi possível remover o autor. Tente novamente.",
+        description: error?.response.data.detail ||  "Não foi possível remover o autor. Tente novamente.",
         variant: "destructive",
       })
     }

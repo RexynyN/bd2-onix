@@ -169,7 +169,7 @@ export default function MidiasPage() {
       console.error("Error fetching media:", error)
       toast({
         title: "Erro ao carregar mídias",
-        description: "Não foi possível carregar a lista de mídias.",
+        description: error?.response.data.detail || "Não foi possível carregar a lista de mídias.",
         variant: "destructive",
       })
     } finally {
@@ -213,7 +213,7 @@ export default function MidiasPage() {
       console.error("Error searching media:", error)
       toast({
         title: "Erro na busca",
-        description: "Não foi possível realizar a busca.",
+        description: error?.response.data.detail || "Não foi possível realizar a busca.",
         variant: "destructive",
       })
     } finally {
@@ -302,7 +302,7 @@ export default function MidiasPage() {
       console.error("Error saving media:", error)
       toast({
         title: "Erro ao salvar mídia",
-        description: "Não foi possível salvar a mídia. Tente novamente.",
+        description: error?.response.data.detail || "Não foi possível salvar a mídia. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -343,7 +343,7 @@ export default function MidiasPage() {
       console.error("Error deleting media:", error)
       toast({
         title: "Erro ao remover mídia",
-        description: "Não foi possível remover a mídia. Tente novamente.",
+        description: error?.response.data.detail || "Não foi possível remover a mídia. Tente novamente.",
         variant: "destructive",
       })
     }
