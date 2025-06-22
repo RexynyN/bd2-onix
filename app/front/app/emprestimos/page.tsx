@@ -46,6 +46,7 @@ const statusIcons = {
 
 export default function EmprestimosPage() {
   const [emprestimos, setEmprestimos] = useState<EmprestimoCompleto[]>([])
+  const [allEmprestimos, setAllEmprestimos] = useState<EmprestimoCompleto[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("todos")
@@ -57,6 +58,7 @@ export default function EmprestimosPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalEmprestimos, setTotalEmprestimos] = useState(0)
   const [filterValues, setFilterValues] = useState<FilterValues>({})
+  const [isSearching, setIsSearching] = useState(false)
   const [formData, setFormData] = useState({
     id_usuario: "",
     id_estoque: "",
@@ -151,6 +153,7 @@ export default function EmprestimosPage() {
         )
       }
 
+      setAllEmprestimos(filteredEmprestimos)
       setEmprestimos(filteredEmprestimos)
       setTotalEmprestimos(
         response.data.length === ITEMS_PER_PAGE
@@ -162,6 +165,43 @@ export default function EmprestimosPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      // If search is empty, show default items
+      setEmprestimos(allEmprestimos)
+      return
+    }
+
+    try {
+      setIsSearching(true)
+      const response = await emprestimosAPI.search(searchTerm)
+      const searchResults = response.data.map((emp: any) => ({
+        ...emp,
+        status: getEmprestimoStatus(emp),
+      }))
+      setEmprestimos(searchResults)
+    } catch (error) {
+      console.error("Error searching emprestimos:", error)
+      toast({
+        title: "Erro na busca",
+        description: "Não foi possível realizar a busca de empréstimos.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    handleSearch()
+  }
+
+  const handleClearSearch = () => {
+    setSearchTerm("")
+    setEmprestimos(allEmprestimos)
   }
 
   const getEmprestimoStatus = (emprestimo: EmprestimoCompleto): "ativo" | "devolvido" | "vencido" => {
@@ -180,9 +220,8 @@ export default function EmprestimosPage() {
   }
 
   const filteredEmprestimos = emprestimos.filter((emprestimo) => {
-    const matchesSearch = emprestimo.usuario?.nome?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === "todos" || emprestimo.status === statusFilter
-    return matchesSearch && matchesStatus
+    return matchesStatus
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -211,7 +250,7 @@ export default function EmprestimosPage() {
       console.error("Error creating emprestimo:", error)
       toast({
         title: "Erro ao criar empréstimo",
-        description: error.response.data.detail,
+        description: "Não foi possível criar o empréstimo. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -238,7 +277,7 @@ export default function EmprestimosPage() {
       console.error("Error returning emprestimo:", error)
       toast({
         title: "Erro ao registrar devolução",
-        description: error.response.data.detail,
+        description: "Não foi possível registrar a devolução. Tente novamente.",
         variant: "destructive",
       })
     }
@@ -425,18 +464,29 @@ export default function EmprestimosPage() {
         <CardHeader>
           <CardTitle>Lista de Empréstimos</CardTitle>
           <CardDescription>
-            Página {currentPage} de {totalPages} - {totalEmprestimos} empréstimos registrados
+            {searchTerm
+              ? `Resultados da busca por "${searchTerm}"`
+              : `Página ${currentPage} de ${totalPages} - ${totalEmprestimos} empréstimos registrados`}
           </CardDescription>
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
+            <form onSubmit={handleSearchSubmit} className="flex items-center space-x-2">
               <Search className="w-4 h-4 text-muted-foreground" />
               <Input
                 placeholder="Buscar empréstimos..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="max-w-sm"
+                disabled={isSearching}
               />
-            </div>
+              <Button type="submit" variant="outline" size="sm" disabled={isSearching}>
+                {isSearching ? "Buscando..." : "Buscar"}
+              </Button>
+              {searchTerm && (
+                <Button type="button" variant="outline" size="sm" onClick={handleClearSearch}>
+                  Limpar
+                </Button>
+              )}
+            </form>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filtrar por status" />
@@ -454,8 +504,12 @@ export default function EmprestimosPage() {
           {emprestimos.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Clock className="mx-auto h-12 w-12 mb-4 opacity-50" />
-              <p>Nenhum empréstimo registrado ainda.</p>
-              <p className="text-sm">Clique em "Novo Empréstimo" para começar.</p>
+              <p>
+                {searchTerm
+                  ? "Nenhum empréstimo encontrado com esse termo de busca."
+                  : "Nenhum empréstimo registrado ainda."}
+              </p>
+              {!searchTerm && <p className="text-sm">Clique em "Novo Empréstimo" para começar.</p>}
             </div>
           ) : (
             <>
@@ -515,9 +569,11 @@ export default function EmprestimosPage() {
                 </TableBody>
               </Table>
 
-              <div className="mt-4">
-                <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
-              </div>
+              {!searchTerm && (
+                <div className="mt-4">
+                  <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+                </div>
+              )}
             </>
           )}
         </CardContent>

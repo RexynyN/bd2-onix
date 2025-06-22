@@ -1,6 +1,7 @@
 """
 Autor API routes
 """
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from app.schemas.autor import (
     AutorCreate, AutorUpdate, AutorResponse, AutorListResponse,
@@ -140,3 +141,13 @@ async def list_autorias(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/pesquisar/bibliotecas", response_model=list[AutorResponse])
+def search_bibliotecas(
+    name: Optional[str] = Query(None, description="Título do item a ser pesquisado")
+):
+    """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
+    if not name:
+        raise HTTPException(status_code=400, detail="Nome é obrigatório para busca")
+    return autor_service.search_autores(name)

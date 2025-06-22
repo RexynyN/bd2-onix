@@ -215,3 +215,23 @@ CREATE INDEX ON livros USING gin (lower(titulo) gin_trgm_ops);
 CREATE INDEX ON artigos USING gin (lower(titulo) gin_trgm_ops);
 CREATE INDEX ON dvds USING gin (lower(titulo) gin_trgm_ops);
 CREATE INDEX ON revistas USING gin (lower(titulo) gin_trgm_ops);
+
+
+
+-- Cria a materialized view otimizando a junção e agregação dos títulos
+DROP MATERIALIZED VIEW IF EXISTS mv_titulos_completos;
+CREATE MATERIALIZED VIEW mv_titulos_completos AS
+SELECT 
+    t.id_titulo,
+    t.tipo_midia,
+    COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) as titulo
+FROM titulo AS t
+LEFT JOIN Livros AS l ON t.id_titulo = l.id_livro
+LEFT JOIN Revistas AS r ON t.id_titulo = r.id_revista
+LEFT JOIN DVDs AS d ON t.id_titulo = d.id_dvd
+LEFT JOIN Artigos AS a ON t.id_titulo = a.id_artigo
+WHERE COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) IS NOT NULL;
+
+-- Cria um índice GIN para acelerar buscas textuais por título
+CREATE INDEX idx_mv_titulos_titulo ON mv_titulos_completos USING gin (to_tsvector('portuguese', titulo));
+CREATE INDEX idx_mv_titulos_titulo_en ON mv_titulos_completos USING gin (to_tsvector('english', titulo));

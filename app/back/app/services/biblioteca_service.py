@@ -79,5 +79,19 @@ class BibliotecaService:
             query = "DELETE FROM Biblioteca WHERE id_biblioteca = %s"
             cursor.execute(query, (id_biblioteca,))
             return cursor.rowcount > 0
-
+        
+    def search_bibliotecas(self, q: str):
+        with get_db_cursor() as cursor:
+            query = """
+                SELECT id_biblioteca, nome, endereco
+                FROM Biblioteca
+                WHERE nome ILIKE %s OR endereco ILIKE %s
+                ORDER BY nome
+                LIMIT 200 
+            """
+            param = f"%{q}%"
+            cursor.execute(query, tuple([param for _ in range(2)]))
+            results = cursor.fetchall()
+            return [Biblioteca(**row) for row in results]
+        
 biblioteca_service = BibliotecaService()

@@ -4,6 +4,8 @@ from app.database.connection import get_db_cursor
 from app.schemas.revista import RevistaCreate, RevistaUpdate, RevistaResponse, RevistaWithAuthors
 import logging
 
+from app.schemas.schemas import Revista
+
 logger = logging.getLogger(__name__)
 
 class RevistaService:
@@ -22,7 +24,7 @@ class RevistaService:
                 """
                 
                 cursor.execute(titulo_query)
-                id_titulo = cursor.fetchone()[0]
+                id_titulo = cursor.fetchone()['id_titulo']
                 
                 # Depois inserir na tabela Revistas
                 revista_query = """
@@ -174,29 +176,29 @@ class RevistaService:
                 raise
         
 
-    async def search_revistas(self, query: str) -> List[RevistaResponse]:
-        """Buscar revistas por título, ISSN ou editora"""
-        with get_db_cursor() as cursor:
-            try:
-                search_query = """
-                    SELECT id_revista, titulo, ISSN, periodicidade, editora, data_publicacao
-                    FROM Revistas 
-                    WHERE titulo ILIKE %s OR ISSN ILIKE %s OR editora ILIKE %s
-                    ORDER BY titulo
-                """
-                search_param = f"%{query}%"
+    # async def search_revistas(self, query: str) -> List[RevistaResponse]:
+    #     """Buscar revistas por título, ISSN ou editora"""
+    #     with get_db_cursor() as cursor:
+    #         try:
+    #             search_query = """
+    #                 SELECT id_revista, titulo, ISSN, periodicidade, editora, data_publicacao
+    #                 FROM Revistas 
+    #                 WHERE titulo ILIKE %s OR ISSN ILIKE %s OR editora ILIKE %s
+    #                 ORDER BY titulo
+    #             """
+    #             search_param = f"%{query}%"
                 
-                cursor.execute(search_query, (search_param, search_param, search_param))
-                results = cursor.fetchall()
+    #             cursor.execute(search_query, (search_param, search_param, search_param))
+    #             results = cursor.fetchall()
                 
-                return [
-                    RevistaResponse(**row)
-                    for row in results
-                ]
+    #             return [
+    #                 RevistaResponse(**row)
+    #                 for row in results
+    #             ]
                 
-            except Exception as e:
-                logger.error(f"Erro ao buscar revistas: {e}")
-                raise
+    #         except Exception as e:
+    #             logger.error(f"Erro ao buscar revistas: {e}")
+    #             raise
         
 
     async def get_revista_with_authors(self, revista_id: int) -> Optional[RevistaWithAuthors]:
@@ -239,3 +241,15 @@ class RevistaService:
                 logger.error(f"Erro ao buscar revista com autores {revista_id}: {e}")
                 raise
             
+    async def search_revistas(self, q: str):
+        with get_db_cursor() as cursor:
+            query = """
+                SELECT id_revista, titulo, ISSN, periodicidade, editora, data_publicacao
+                FROM Revistas
+                WHERE titulo ILIKE %s OR ISSN ILIKE %s
+                LIMIT 200 
+            """
+            param = f"%{q}%"
+            cursor.execute(query, tuple([param for _ in range(2)]))
+            results = cursor.fetchall()
+            return [Revista(**row) for row in results]

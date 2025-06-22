@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import List
+from typing import List, Optional
 from app.schemas.dvd import DVDCreate, DVDUpdate, DVDResponse, DVDWithAuthors
 from app.services.dvd_service import DVDService
+from app.schemas.schemas import DVD
 
 router = APIRouter()
 dvd_service = DVDService()
@@ -66,3 +67,12 @@ async def get_dvd_with_authors(dvd_id: int):
     if not dvd:
         raise HTTPException(status_code=404, detail="DVD não encontrado")
     return dvd
+
+@router.get("/pesquisar/dvds", response_model=List[DVD])
+async def search_dvds(
+    title: Optional[str] = Query(None, description="Título do item a ser pesquisado")
+):
+    """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
+    if not title:
+        raise HTTPException(status_code=400, detail="Título é obrigatório para busca")
+    return await dvd_service.search_dvds(title)

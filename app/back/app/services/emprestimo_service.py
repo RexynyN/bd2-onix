@@ -207,5 +207,21 @@ class EmprestimoService:
                 emprestimos_vencidos=emprestimos_vencidos,
                 emprestimos_devolvidos=emprestimos_devolvidos
             )
+        
+    def search_emprestimos(self, q: str):
+        with get_db_cursor() as cursor:
+            query = """
+                SELECT id_emprestimo, data_emprestimo, data_devolucao_prevista, data_devolucao, id_estoque, id_usuario
+                FROM Emprestimo
+                WHERE CAST(id_usuario AS TEXT) ILIKE %s OR CAST(id_estoque AS TEXT) ILIKE %s
+                   OR CAST(data_emprestimo AS TEXT) ILIKE %s OR CAST(data_devolucao_prevista AS TEXT) ILIKE %s
+                   OR CAST(data_devolucao AS TEXT) ILIKE %s
+                ORDER BY data_emprestimo DESC
+                LIMIT 200 
+            """
+            param = f"%{q}%"
+            cursor.execute(query, tuple([param for _ in range(4)]))
+            results = cursor.fetchall()
+            return [Emprestimo(**row) for row in results]
 
 emprestimo_service = EmprestimoService()

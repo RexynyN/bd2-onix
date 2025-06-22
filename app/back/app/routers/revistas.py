@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import List
+from typing import List, Optional
 from app.schemas.revista import RevistaCreate, RevistaUpdate, RevistaResponse, RevistaWithAuthors
 from app.services.revista_service import RevistaService
+from app.schemas.schemas import Revista
 
 router = APIRouter()
 revista_service = RevistaService()
@@ -66,3 +67,13 @@ async def get_revista_with_authors(revista_id: int):
     if not revista:
         raise HTTPException(status_code=404, detail="Revista não encontrada")
     return revista
+
+
+@router.get("/pesquisar/revistas", response_model=List[Revista])
+async def search_revistas(
+    title: Optional[str] = Query(None, description="Título do item a ser pesquisado")
+):
+    """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
+    if not title:
+        raise HTTPException(status_code=400, detail="Título é obrigatório para busca")
+    return await revista_service.search_revistas(title)

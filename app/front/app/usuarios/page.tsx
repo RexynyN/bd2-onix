@@ -27,6 +27,7 @@ const ITEMS_PER_PAGE = 10
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
+  const [allUsuarios, setAllUsuarios] = useState<Usuario[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<Usuario | null>(null)
@@ -34,6 +35,7 @@ export default function UsuariosPage() {
   const [submitting, setSubmitting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalUsers, setTotalUsers] = useState(0)
+  const [isSearching, setIsSearching] = useState(false)
   const [formData, setFormData] = useState<UsuarioCreate>({
     nome: "",
     email: "",
@@ -51,6 +53,7 @@ export default function UsuariosPage() {
       setLoading(true)
       const skip = (currentPage - 1) * ITEMS_PER_PAGE
       const response = await usuariosAPI.getAll(skip, ITEMS_PER_PAGE)
+      setAllUsuarios(response.data)
       setUsuarios(response.data)
       // Note: API doesn't return total count, so we estimate based on returned data
       setTotalUsers(
@@ -62,7 +65,7 @@ export default function UsuariosPage() {
       console.error("Error fetching usuarios:", error)
       toast({
         title: "Erro ao carregar usuários",
-        description: error.response.data.detail || "Não foi possível carregar a lista de usuários.",
+        description: "Não foi possível carregar a lista de usuários.",
         variant: "destructive",
       })
     } finally {
@@ -70,11 +73,38 @@ export default function UsuariosPage() {
     }
   }
 
-  const filteredUsuarios = usuarios.filter(
-    (usuario) =>
-      usuario.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (usuario.email && usuario.email.toLowerCase().includes(searchTerm.toLowerCase())),
-  )
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      // If search is empty, show default items
+      setUsuarios(allUsuarios)
+      return
+    }
+
+    try {
+      setIsSearching(true)
+      const response = await usuariosAPI.search(searchTerm)
+      setUsuarios(response.data)
+    } catch (error) {
+      console.error("Error searching usuarios:", error)
+      toast({
+        title: "Erro na busca",
+        description: "Não foi possível realizar a busca de usuários.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    handleSearch()
+  }
+
+  const handleClearSearch = () => {
+    setSearchTerm("")
+    setUsuarios(allUsuarios)
+  }
 
   const totalPages = Math.ceil(totalUsers / ITEMS_PER_PAGE)
 
@@ -91,7 +121,7 @@ export default function UsuariosPage() {
           telefone: formData.telefone || null,
         }
         const response = await usuariosAPI.update(editingUser.id_usuario, updateData)
-        setUsuarios(usuarios.map((u) => (u.id_usuario === editingUser.id_usuario ? response.data : u)))
+        setAllUsuarios(allUsuarios.map((u) => (u.id_usuario === editingUser.id_usuario ? response.data : u)))
         toast({
           title: "Usuário atualizado",
           description: "Os dados do usuário foram atualizados com sucesso.",
@@ -119,7 +149,7 @@ export default function UsuariosPage() {
       console.error("Error saving usuario:", error)
       toast({
         title: "Erro ao salvar usuário",
-        description: error.response.data.detail,
+        description: "Não foi possível salvar o usuário. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -150,7 +180,7 @@ export default function UsuariosPage() {
       console.error("Error deleting usuario:", error)
       toast({
         title: "Erro ao remover usuário",
-        description: error.response.data.detail,
+        description: "Não foi possível remover o usuário. Tente novamente.",
         variant: "destructive",
       })
     }
@@ -278,17 +308,28 @@ export default function UsuariosPage() {
         <CardHeader>
           <CardTitle>Lista de Usuários</CardTitle>
           <CardDescription>
-            Página {currentPage} de {totalPages} - {totalUsers} usuários cadastrados
+            {searchTerm
+              ? `Resultados da busca por "${searchTerm}"`
+              : `Página ${currentPage} de ${totalPages} - ${totalUsers} usuários cadastrados`}
           </CardDescription>
-          <div className="flex items-center space-x-2">
+          <form onSubmit={handleSearchSubmit} className="flex items-center space-x-2">
             <Search className="w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Buscar usuários..."
+              placeholder="Buscar usuários por nome..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
+              disabled={isSearching}
             />
-          </div>
+            <Button type="submit" variant="outline" size="sm" disabled={isSearching}>
+              {isSearching ? "Buscando..." : "Buscar"}
+            </Button>
+            {searchTerm && (
+              <Button type="button" variant="outline" size="sm" onClick={handleClearSearch}>
+                Limpar
+              </Button>
+            )}
+          </form>
         </CardHeader>
         <CardContent>
           <Table>
@@ -303,31 +344,41 @@ export default function UsuariosPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsuarios.map((usuario) => (
-                <TableRow key={usuario.id_usuario}>
-                  <TableCell className="font-medium">{usuario.id_usuario}</TableCell>
-                  <TableCell>{usuario.nome}</TableCell>
-                  <TableCell>{usuario.email || "-"}</TableCell>
-                  <TableCell>{usuario.telefone || "-"}</TableCell>
-                  <TableCell>{usuario.endereco || "-"}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(usuario)}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDelete(usuario.id_usuario)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+              {usuarios.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center">
+                    {searchTerm ? "Nenhum usuário encontrado com esse termo de busca." : "Nenhum usuário cadastrado."}
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                usuarios.map((usuario) => (
+                  <TableRow key={usuario.id_usuario}>
+                    <TableCell className="font-medium">{usuario.id_usuario}</TableCell>
+                    <TableCell>{usuario.nome}</TableCell>
+                    <TableCell>{usuario.email || "-"}</TableCell>
+                    <TableCell>{usuario.telefone || "-"}</TableCell>
+                    <TableCell>{usuario.endereco || "-"}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleEdit(usuario)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDelete(usuario.id_usuario)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
 
-          <div className="mt-4">
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
-          </div>
+          {!searchTerm && (
+            <div className="mt-4">
+              <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import List
+from typing import List, Optional
 from app.schemas.schemas import Usuario, UsuarioCreate, UsuarioUpdate
 from app.services.usuario_service import usuario_service
 
@@ -48,3 +48,13 @@ def get_usuarios_com_emprestimos_ativos(
 ):
     """Listar usuários com empréstimos em andamento"""
     return usuario_service.get_usuarios_com_emprestimos_em_andamento(skip, limit)
+
+@router.get("/pesquisar/usuarios", response_model=List[Usuario])
+def search_usuarios(
+    name: Optional[str] = Query(None, description="Título do item a ser pesquisado")
+):
+
+    """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
+    if not name:
+        raise HTTPException(status_code=400, detail="Título é obrigatório para busca")
+    return usuario_service.search_usuarios(name)

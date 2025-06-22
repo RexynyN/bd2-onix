@@ -102,5 +102,19 @@ class UsuarioService:
             cursor.execute(query, (skip, limit))
             results = cursor.fetchall()
             return [Usuario(**result) for result in results]
+    
+    def search_usuarios(self, q: str):
+        with get_db_cursor() as cursor:
+            query = """
+                SELECT id_usuario, nome, email, endereco, telefone
+                FROM Usuario
+                WHERE nome ILIKE %s OR email ILIKE %s OR telefone ILIKE %s
+                LIMIT 200 
+            """
+            param = f"%{q}%"
+            cursor.execute(query, tuple([param for _ in range(3)]))
+            results = cursor.fetchall()
+            return [Usuario(**row) for row in results]
+
 
 usuario_service = UsuarioService()

@@ -22,7 +22,7 @@ class DVDService:
                     RETURNING id_titulo
                 """
                 cursor.execute(titulo_query)
-                id_titulo = cursor.fetchone()[0]
+                id_titulo = cursor.fetchone()['id_titulo']
                 
                 # Depois inserir na tabela DVDs
                 dvd_query = """
@@ -170,29 +170,29 @@ class DVDService:
                 raise
       
 
-    async def search_dvds(self, query: str) -> List[DVDResponse]:
-        """Buscar DVDs por título, ISAN ou distribuidora"""
-        with get_db_cursor() as cursor:
-            try:
-                search_query = """
-                    SELECT id_dvd, titulo, ISAN, duracao, distribuidora, data_lancamento
-                    FROM DVDs 
-                    WHERE titulo ILIKE %s OR ISAN ILIKE %s OR distribuidora ILIKE %s
-                    ORDER BY titulo
-                """
-                search_param = f"%{query}%"
+    # async def search_dvds(self, query: str) -> List[DVDResponse]:
+    #     """Buscar DVDs por título, ISAN ou distribuidora"""
+    #     with get_db_cursor() as cursor:
+    #         try:
+    #             search_query = """
+    #                 SELECT id_dvd, titulo, ISAN, duracao, distribuidora, data_lancamento
+    #                 FROM DVDs 
+    #                 WHERE titulo ILIKE %s OR ISAN ILIKE %s OR distribuidora ILIKE %s
+    #                 ORDER BY titulo
+    #             """
+    #             search_param = f"%{query}%"
 
-                cursor.execute(search_query, (search_param, search_param, search_param))
-                results = cursor.fetchall()
+    #             cursor.execute(search_query, (search_param, search_param, search_param))
+    #             results = cursor.fetchall()
                 
-                return [
-                    DVDResponse(**row)
-                    for row in results
-                ]
+    #             return [
+    #                 DVDResponse(**row)
+    #                 for row in results
+    #             ]
                 
-            except Exception as e:
-                logger.error(f"Erro ao buscar DVDs: {e}")
-                raise
+    #         except Exception as e:
+    #             logger.error(f"Erro ao buscar DVDs: {e}")
+    #             raise
 
 
     async def get_dvd_with_authors(self, dvd_id: int) -> Optional[DVDWithAuthors]:
@@ -234,3 +234,15 @@ class DVDService:
                 logger.error(f"Erro ao buscar DVD com autores {dvd_id}: {e}")
                 raise
 
+    async def search_dvds(self, q: str) -> List[DVD]:
+        with get_db_cursor() as cursor:
+            query = """
+                SELECT id_dvd, titulo, ISAN, duracao, distribuidora, data_lancamento
+                FROM DVDs
+                WHERE titulo ILIKE %s OR ISAN ILIKE %s 
+                LIMIT 200 
+            """
+            param = f"%{q}%"
+            cursor.execute(query, tuple([param for _ in range(2)]))
+            results = cursor.fetchall()
+            return [DVD(**row) for row in results]

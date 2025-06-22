@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -44,6 +46,7 @@ export default function EstoquePage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalEstoques, setTotalEstoques] = useState(0)
   const [filterValues, setFilterValues] = useState<FilterValues>({})
+  const [isSearching, setIsSearching] = useState(false)
   const { toast } = useToast()
 
   const filterConfig: FilterConfig[] = [
@@ -84,10 +87,6 @@ export default function EstoquePage() {
     fetchEstoques()
     fetchBibliotecas()
   }, [currentPage])
-
-  useEffect(() => {
-    applySearchAndFilters()
-  }, [searchTerm, allEstoques, filterValues])
 
   const fetchEstoques = async () => {
     try {
@@ -136,6 +135,7 @@ export default function EstoquePage() {
       )
 
       setAllEstoques(enhancedEstoques)
+      setEstoques(enhancedEstoques)
       setTotalEstoques(
         response.data.length === ITEMS_PER_PAGE
           ? currentPage * ITEMS_PER_PAGE + 1
@@ -145,7 +145,7 @@ export default function EstoquePage() {
       console.error("Error fetching estoques:", error)
       toast({
         title: "Erro ao carregar estoque",
-        description: error.response.data.detail,
+        description: "Não foi possível carregar os itens do estoque.",
         variant: "destructive",
       })
     } finally {
@@ -153,19 +153,82 @@ export default function EstoquePage() {
     }
   }
 
-  const applySearchAndFilters = () => {
-    let filteredEstoques = [...allEstoques]
-
-    // Apply search filter
-    if (searchTerm) {
-      filteredEstoques = filteredEstoques.filter(
-        (estoque) =>
-          estoque.titulo_nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          estoque.biblioteca_nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          estoque.condicao?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          estoque.id_estoque.toString().includes(searchTerm),
-      )
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      // If search is empty, show default items
+      setEstoques(allEstoques)
+      return
     }
+
+    try {
+      setIsSearching(true)
+      const response = await estoqueAPI.searchEstoque(searchTerm)
+
+      // Enhance search results with names
+      const enhancedResults = await Promise.all(
+        response.data.map(async (estoque) => {
+          const enhanced: EstoqueWithNames = { ...estoque }
+
+          // Try to get title name from different media types
+          try {
+            const revista = await revistasAPI.getById(estoque.id_titulo)
+            enhanced.titulo_nome = revista.data.titulo
+          } catch {
+            try {
+              const dvd = await dvdsAPI.getById(estoque.id_titulo)
+              enhanced.titulo_nome = dvd.data.titulo
+            } catch {
+              try {
+                const artigo = await artigosAPI.getById(estoque.id_titulo)
+                enhanced.titulo_nome = artigo.data.titulo
+              } catch {
+                try {
+                  const livro = await livrosAPI.getById(estoque.id_titulo)
+                  enhanced.titulo_nome = livro.data.titulo
+                } catch {
+                  enhanced.titulo_nome = `Título ID: ${estoque.id_titulo}`
+                }
+              }
+            }
+          }
+
+          // Get biblioteca name
+          try {
+            const biblioteca = await bibliotecasAPI.getById(estoque.id_biblioteca)
+            enhanced.biblioteca_nome = biblioteca.data.nome
+          } catch {
+            enhanced.biblioteca_nome = `Biblioteca ID: ${estoque.id_biblioteca}`
+          }
+
+          return enhanced
+        }),
+      )
+
+      setEstoques(enhancedResults)
+    } catch (error) {
+      console.error("Error searching estoque:", error)
+      toast({
+        title: "Erro na busca",
+        description: "Não foi possível realizar a busca no estoque.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    handleSearch()
+  }
+
+  const handleClearSearch = () => {
+    setSearchTerm("")
+    setEstoques(allEstoques)
+  }
+
+  const applyFilters = () => {
+    let filteredEstoques = [...allEstoques]
 
     // Apply advanced filters
     if (filterValues.condicao && filterValues.condicao !== "all") {
@@ -225,7 +288,7 @@ export default function EstoquePage() {
       console.error("Error saving estoque:", error)
       toast({
         title: "Erro ao salvar estoque",
-        description: error.response.data.detail,
+        description: "Não foi possível salvar o item do estoque.",
         variant: "destructive",
       })
     }
@@ -252,7 +315,7 @@ export default function EstoquePage() {
       console.error("Error deleting estoque:", error)
       toast({
         title: "Erro ao remover item",
-        description: error.response.data.detail,
+        description: "Não foi possível remover o item do estoque.",
         variant: "destructive",
       })
     }
@@ -260,14 +323,14 @@ export default function EstoquePage() {
 
   const handleApplyFilters = () => {
     setCurrentPage(1)
-    applySearchAndFilters()
+    applyFilters()
   }
 
   const handleClearFilters = () => {
     setFilterValues({})
     setSearchTerm("")
     setCurrentPage(1)
-    applySearchAndFilters()
+    setEstoques(allEstoques)
   }
 
   const totalPages = Math.ceil(totalEstoques / ITEMS_PER_PAGE)
@@ -369,17 +432,28 @@ export default function EstoquePage() {
         <CardHeader>
           <CardTitle>Itens do Estoque</CardTitle>
           <CardDescription>
-            Página {currentPage} de {totalPages} - {estoques.length} itens exibidos de {totalEstoques} total
+            {searchTerm
+              ? `Resultados da busca por "${searchTerm}"`
+              : `Página ${currentPage} de ${totalPages} - ${estoques.length} itens exibidos de ${totalEstoques} total`}
           </CardDescription>
-          <div className="flex items-center space-x-2">
+          <form onSubmit={handleSearchSubmit} className="flex items-center space-x-2">
             <Search className="w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Buscar por título, biblioteca, condição ou ID..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
+              disabled={isSearching}
             />
-          </div>
+            <Button type="submit" variant="outline" size="sm" disabled={isSearching}>
+              {isSearching ? "Buscando..." : "Buscar"}
+            </Button>
+            {searchTerm && (
+              <Button type="button" variant="outline" size="sm" onClick={handleClearSearch}>
+                Limpar
+              </Button>
+            )}
+          </form>
         </CardHeader>
         <CardContent>
           <Table>
@@ -441,9 +515,11 @@ export default function EstoquePage() {
             </TableBody>
           </Table>
 
-          <div className="mt-4">
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
-          </div>
+          {!searchTerm && (
+            <div className="mt-4">
+              <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

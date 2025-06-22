@@ -48,6 +48,7 @@ class LivroService:
             query = "SELECT * FROM Livros ORDER BY id_livro OFFSET %s LIMIT %s"
             cursor.execute(query, (skip, limit))
             results = cursor.fetchall()
+            print([Livro(**result) for result in results])
             return [Livro(**result) for result in results]
     
     def update_livro(self, id_livro: int, livro: LivroUpdate) -> Optional[Livro]:
@@ -105,16 +106,17 @@ class LivroService:
             cursor.execute("DELETE FROM Titulo WHERE id_titulo = %s", (id_livro,))
             return cursor.rowcount > 0
     
-    def search_livros(self, query: str) -> List[Livro]:
+    def search_livros(self, q: str):
         with get_db_cursor() as cursor:
-            search_query = '''
-                SELECT * FROM Livros 
-                WHERE titulo ILIKE %s OR isbn ILIKE %s OR editora ILIKE %s
-                ORDER BY titulo
-            '''
-            search_term = f"%{query}%"
-            cursor.execute(search_query, (search_term, search_term, search_term))
+            query = """
+                SELECT id_livro, titulo, ISBN, numero_paginas, editora, data_publicacao
+                FROM Livros
+                WHERE titulo ILIKE %s OR ISBN ILIKE
+                LIMIT 200 
+            """
+            param = f"%{q}%"
+            cursor.execute(query, tuple([param for _ in range(2)]))
             results = cursor.fetchall()
-            return [Livro(**result) for result in results]
+            return [Livro(**row) for row in results]
 
 livro_service = LivroService()

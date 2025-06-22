@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import List
+from typing import List, Optional
 from app.schemas.artigo import ArtigoCreate, ArtigoUpdate, ArtigoResponse, ArtigoWithAuthors
 from app.services.artigo_service import ArtigoService
 
@@ -12,6 +12,7 @@ async def create_artigo(artigo: ArtigoCreate):
     try:
         return await artigo_service.create_artigo(artigo)
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{artigo_id}", response_model=ArtigoResponse)
@@ -67,3 +68,13 @@ async def get_artigo_with_authors(artigo_id: int):
     if not artigo:
         raise HTTPException(status_code=404, detail="Artigo não encontrado")
     return artigo
+
+
+@router.get("/pesquisar/artigos", response_model=List[ArtigoResponse])
+async def search_artigos(
+    title: Optional[str] = Query(None, description="Título do item a ser pesquisado")
+):
+    """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
+    if not title:
+        raise HTTPException(status_code=400, detail="Título é obrigatório para busca")
+    return await artigo_service.search_artigos(title)

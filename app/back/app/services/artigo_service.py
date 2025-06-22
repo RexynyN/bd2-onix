@@ -23,7 +23,7 @@ class ArtigoService:
                     RETURNING id_titulo
                 """
                 cursor.execute(titulo_query)
-                id_titulo = cursor.fetchone()[0]
+                id_titulo = cursor.fetchone()['id_titulo']
                 
                 # Depois inserir na tabela Artigos
                 artigo_query = """
@@ -229,3 +229,16 @@ class ArtigoService:
                 logger.error(f"Erro ao buscar artigo com autores {artigo_id}: {e}")
                 raise
         
+    async def search_artigos(self, q: str):
+        with get_db_cursor() as cursor:
+            query = """
+                SELECT id_artigo, titulo, DOI, publicadora, data_publicacao
+                FROM Artigos
+                WHERE titulo ILIKE %s OR DOI ILIKE %s
+                ORDER BY titulo
+                LIMIT 200 
+            """
+            param = f"%{q}%"
+            cursor.execute(query, tuple([param for _ in range(2)]))
+            results = cursor.fetchall()
+            return [Artigo(**row) for row in results]

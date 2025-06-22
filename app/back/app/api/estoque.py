@@ -64,19 +64,16 @@ def search_from_title(
     title: Optional[str] = Query(None, description="Título do item a ser pesquisado")
 ):
     """Buscar itens do estoque a partir do título"""
-    estoque_service.search_from_title()
     if not title:
         raise HTTPException(status_code=400, detail="Título é obrigatório para busca")
-    return estoque_service.search_from_title()
+    return estoque_service.search_from_title(title)
 
 
 @router.get("/pesquisar/estoque", response_model=List[Estoque])
 def search_from_estoque(
-    id_estoque: Optional[int] = Query(None, description="ID do estoque a ser pesquisado"),
-    id_biblioteca: Optional[int] = Query(None, description="ID da biblioteca a ser pesquisada")
+    title: Optional[str] = Query(None, description="Título do item a ser pesquisado")
 ):
     """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
-    if not id_estoque and not id_biblioteca:
-        raise HTTPException(status_code=400, detail="Pelo menos um parâmetro (id_estoque ou id_biblioteca) deve ser fornecido")
-    
-    return estoque_service.search_from_estoque(id_estoque, id_biblioteca)
+    if not title:
+        raise HTTPException(status_code=400, detail="Título é obrigatório para busca")
+    return estoque_service.search_from_estoque(title)

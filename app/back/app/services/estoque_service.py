@@ -152,19 +152,11 @@ class EstoqueService:
             search_query = f"%{search_query}%"
             query = '''
                 SELECT 
-                    t.id_titulo,
-                    t.tipo_midia,
-                    COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) as titulo
-                FROM titulo AS t
-                LEFT JOIN Livros AS l ON t.id_titulo = l.id_livro
-                LEFT JOIN Revistas AS r ON t.id_titulo = r.id_revista
-                LEFT JOIN DVDs AS d ON t.id_titulo = d.id_dvd
-                LEFT JOIN Artigos AS a ON t.id_titulo = a.id_artigo
-                WHERE a.titulo ILIKE %s
-                    OR r.titulo ILIKE %s
-                    OR l.titulo ILIKE %s
-                    OR d.titulo ILIKE %s
-                ORDER BY COALESCE(l.titulo, r.titulo, d.titulo, a.titulo) ASC 
+                    id_titulo,
+                    tipo_midia,
+                    titulo  
+                FROM mv_titulos_completos
+                WHERE titulo ILIKE %s
                 LIMIT 200; 
             '''
             cursor.execute(query, tuple([search_query for _ in range(4)]))
@@ -189,5 +181,9 @@ class EstoqueService:
             cursor.execute(query, (search_query,))
             results = cursor.fetchall()
             return [Estoque(**result) for result in results]
+    
+    def reload_materialized_views(self):
+        with get_db_cursor() as cursor:
+            cursor.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_titulos_completos;")
 
 estoque_service = EstoqueService()

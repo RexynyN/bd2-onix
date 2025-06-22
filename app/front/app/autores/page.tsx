@@ -29,6 +29,7 @@ const ITEMS_PER_PAGE = 10
 
 export default function AutoresPage() {
   const [autores, setAutores] = useState<AutorResponse[]>([])
+  const [allAutores, setAllAutores] = useState<AutorResponse[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingAutor, setEditingAutor] = useState<AutorResponse | null>(null)
@@ -37,6 +38,7 @@ export default function AutoresPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalAutores, setTotalAutores] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
+  const [isSearching, setIsSearching] = useState(false)
   const [formData, setFormData] = useState<AutorCreate>({
     nome: "",
     data_nascimento: undefined,
@@ -52,6 +54,7 @@ export default function AutoresPage() {
     try {
       setLoading(true)
       const response = await autoresAPI.getAll(currentPage, ITEMS_PER_PAGE)
+      setAllAutores(response.data.data)
       setAutores(response.data.data)
       setTotalAutores(response.data.total)
       setTotalPages(Math.ceil(response.data.total / ITEMS_PER_PAGE))
@@ -59,7 +62,7 @@ export default function AutoresPage() {
       console.error("Error fetching autores:", error)
       toast({
         title: "Erro ao carregar autores",
-        description: error.response.data.detail,
+        description: "Não foi possível carregar a lista de autores.",
         variant: "destructive",
       })
     } finally {
@@ -67,7 +70,38 @@ export default function AutoresPage() {
     }
   }
 
-  const filteredAutores = autores.filter((autor) => autor.nome.toLowerCase().includes(searchTerm.toLowerCase()))
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      // If search is empty, show default items
+      setAutores(allAutores)
+      return
+    }
+
+    try {
+      setIsSearching(true)
+      const response = await autoresAPI.search(searchTerm)
+      setAutores(response.data)
+    } catch (error) {
+      console.error("Error searching autores:", error)
+      toast({
+        title: "Erro na busca",
+        description: "Não foi possível realizar a busca de autores.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    handleSearch()
+  }
+
+  const handleClearSearch = () => {
+    setSearchTerm("")
+    setAutores(allAutores)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -81,7 +115,7 @@ export default function AutoresPage() {
           data_falecimento: formData.data_falecimento || null,
         }
         const response = await autoresAPI.update(editingAutor.id_autor, updateData)
-        setAutores(autores.map((a) => (a.id_autor === editingAutor.id_autor ? response.data : a)))
+        setAllAutores(allAutores.map((a) => (a.id_autor === editingAutor.id_autor ? response.data : a)))
         toast({
           title: "Autor atualizado",
           description: "Os dados do autor foram atualizados com sucesso.",
@@ -102,7 +136,7 @@ export default function AutoresPage() {
       console.error("Error saving autor:", error)
       toast({
         title: "Erro ao salvar autor",
-        description: error.response.data.detail,
+        description: "Não foi possível salvar o autor. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -132,7 +166,7 @@ export default function AutoresPage() {
       console.error("Error deleting autor:", error)
       toast({
         title: "Erro ao remover autor",
-        description: error.response.data.detail,
+        description: "Não foi possível remover o autor. Tente novamente.",
         variant: "destructive",
       })
     }
@@ -258,7 +292,7 @@ export default function AutoresPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {filteredAutores.map((autor) => (
+        {autores.map((autor) => (
           <Card key={autor.id_autor} className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div className="flex items-center gap-2">
@@ -305,17 +339,28 @@ export default function AutoresPage() {
         <CardHeader>
           <CardTitle>Lista de Autores</CardTitle>
           <CardDescription>
-            Página {currentPage} de {totalPages} - {totalAutores} autores cadastrados
+            {searchTerm
+              ? `Resultados da busca por "${searchTerm}"`
+              : `Página ${currentPage} de ${totalPages} - ${totalAutores} autores cadastrados`}
           </CardDescription>
-          <div className="flex items-center space-x-2">
+          <form onSubmit={handleSearchSubmit} className="flex items-center space-x-2">
             <Search className="w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Buscar por nome..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
+              disabled={isSearching}
             />
-          </div>
+            <Button type="submit" variant="outline" size="sm" disabled={isSearching}>
+              {isSearching ? "Buscando..." : "Buscar"}
+            </Button>
+            {searchTerm && (
+              <Button type="button" variant="outline" size="sm" onClick={handleClearSearch}>
+                Limpar
+              </Button>
+            )}
+          </form>
         </CardHeader>
         <CardContent>
           <Table>
@@ -330,31 +375,41 @@ export default function AutoresPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAutores.map((autor) => (
-                <TableRow key={autor.id_autor}>
-                  <TableCell className="font-medium">{autor.id_autor}</TableCell>
-                  <TableCell className="font-medium">{autor.nome}</TableCell>
-                  <TableCell>{formatDate(autor.data_nascimento)}</TableCell>
-                  <TableCell>{formatDate(autor.data_falecimento) || "Vivo"}</TableCell>
-                  <TableCell>{calculateAge(autor.data_nascimento, autor.data_falecimento)} anos</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(autor)}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDelete(autor.id_autor)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+              {autores.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center">
+                    {searchTerm ? "Nenhum autor encontrado com esse termo de busca." : "Nenhum autor cadastrado."}
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                autores.map((autor) => (
+                  <TableRow key={autor.id_autor}>
+                    <TableCell className="font-medium">{autor.id_autor}</TableCell>
+                    <TableCell className="font-medium">{autor.nome}</TableCell>
+                    <TableCell>{formatDate(autor.data_nascimento)}</TableCell>
+                    <TableCell>{formatDate(autor.data_falecimento) || "Vivo"}</TableCell>
+                    <TableCell>{calculateAge(autor.data_nascimento, autor.data_falecimento)} anos</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleEdit(autor)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDelete(autor.id_autor)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
 
-          <div className="mt-4">
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
-          </div>
+          {!searchTerm && (
+            <div className="mt-4">
+              <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

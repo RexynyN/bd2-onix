@@ -94,5 +94,18 @@ class AutorService:
             query = "DELETE FROM Autores WHERE id_autor = %s"
             cursor.execute(query, (id_autor,))
             return cursor.rowcount > 0
+        
+    def search_livros(self, q: str):
+        with get_db_cursor() as cursor:
+            query = """
+                SELECT id_autor, nome, data_nascimento, data_falecimento
+                FROM Autores
+                WHERE nome ILIKE %s
+                LIMIT 200 
+            """
+            param = f"%{q}%"
+            cursor.execute(query, tuple([param for _ in range(1)]))
+            results = cursor.fetchall()
+            return [Autor(**row) for row in results]
 
 autor_service = AutorService()

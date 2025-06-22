@@ -2,7 +2,7 @@
 Biblioteca API routes
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import List
+from typing import List, Optional
 from app.schemas.biblioteca import (
     BibliotecaCreate, BibliotecaUpdate, BibliotecaResponse, 
     BibliotecaListResponse
@@ -126,3 +126,13 @@ async def get_available_items(library_id: int):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/pesquisar/bibliotecas", response_model=List[BibliotecaResponse])
+def search_bibliotecas(
+    name: Optional[str] = Query(None, description="Título do item a ser pesquisado")
+):
+    """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
+    if not name:
+        raise HTTPException(status_code=400, detail="Nome é obrigatório para busca")
+    return biblioteca_service.search_bibliotecas(name)

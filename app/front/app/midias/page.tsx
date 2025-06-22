@@ -4,9 +4,9 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import { Plus, Search, Edit, Trash2, FileText, Disc, Newspaper, BookOpen } from "lucide-react"
+import { Plus, Edit, Trash2, FileText, Disc, Newspaper, BookOpen, Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -19,9 +19,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   revistasAPI,
   dvdsAPI,
@@ -36,7 +36,6 @@ import {
   type ArtigoCreate,
   type LivroCreate,
 } from "@/lib/api"
-import { Pagination } from "@/components/pagination"
 import { AdvancedFilters, type FilterConfig, type FilterValues } from "@/components/advanced-filters"
 
 type MediaType = "revista" | "dvd" | "artigo" | "livro"
@@ -58,12 +57,28 @@ const tipoMidiaColors = {
   livro: "bg-blue-100 text-blue-800",
 }
 
+const tipoMidiaLabels = {
+  revista: "Revistas",
+  dvd: "DVDs",
+  artigo: "Artigos",
+  livro: "Livros",
+}
+
 export default function MidiasPage() {
   const [revistas, setRevistas] = useState<RevistaResponse[]>([])
   const [dvds, setDvds] = useState<DVDResponse[]>([])
   const [artigos, setArtigos] = useState<ArtigoResponse[]>([])
   const [livros, setLivros] = useState<LivroResponse[]>([])
-  const [searchTerm, setSearchTerm] = useState("")
+  const [allRevistas, setAllRevistas] = useState<RevistaResponse[]>([])
+  const [allDvds, setAllDvds] = useState<DVDResponse[]>([])
+  const [allArtigos, setAllArtigos] = useState<ArtigoResponse[]>([])
+  const [allLivros, setAllLivros] = useState<LivroResponse[]>([])
+  const [searchTerms, setSearchTerms] = useState<Record<MediaType, string>>({
+    revista: "",
+    dvd: "",
+    artigo: "",
+    livro: "",
+  })
   const [activeTab, setActiveTab] = useState<MediaType>("revista")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -71,6 +86,12 @@ export default function MidiasPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [filterValues, setFilterValues] = useState<FilterValues>({})
+  const [isSearching, setIsSearching] = useState<Record<MediaType, boolean>>({
+    revista: false,
+    dvd: false,
+    artigo: false,
+    livro: false,
+  })
   const [formData, setFormData] = useState<any>({})
   const { toast } = useToast()
 
@@ -92,6 +113,23 @@ export default function MidiasPage() {
     fetchMediaByType()
   }, [currentPage, activeTab])
 
+  const restoreDefaultItems = () => {
+    switch (activeTab) {
+      case "revista":
+        setRevistas(allRevistas)
+        break
+      case "dvd":
+        setDvds(allDvds)
+        break
+      case "artigo":
+        setArtigos(allArtigos)
+        break
+      case "livro":
+        setLivros(allLivros)
+        break
+    }
+  }
+
   const fetchMediaByType = async () => {
     try {
       setLoading(true)
@@ -101,18 +139,22 @@ export default function MidiasPage() {
       switch (activeTab) {
         case "revista":
           response = await revistasAPI.getAll(skip, ITEMS_PER_PAGE)
+          setAllRevistas(response.data)
           setRevistas(response.data)
           break
         case "dvd":
           response = await dvdsAPI.getAll(skip, ITEMS_PER_PAGE)
+          setAllDvds(response.data)
           setDvds(response.data)
           break
         case "artigo":
           response = await artigosAPI.getAll(skip, ITEMS_PER_PAGE)
+          setAllArtigos(response.data)
           setArtigos(response.data)
           break
         case "livro":
           response = await livrosAPI.getAll(skip, ITEMS_PER_PAGE)
+          setAllLivros(response.data)
           setLivros(response.data)
           break
       }
@@ -135,30 +177,33 @@ export default function MidiasPage() {
     }
   }
 
-  const searchMedia = async (query: string) => {
-    if (!query.trim()) {
-      fetchMediaByType()
+  const handleSearch = async (mediaType: MediaType) => {
+    const searchTerm = searchTerms[mediaType]
+
+    if (!searchTerm.trim()) {
+      // If search is empty, show default items
+      restoreDefaultItems()
       return
     }
 
     try {
-      setLoading(true)
+      setIsSearching({ ...isSearching, [mediaType]: true })
       let response
-      switch (activeTab) {
+      switch (mediaType) {
         case "revista":
-          response = await revistasAPI.search(query)
+          response = await revistasAPI.searchByTitle(searchTerm)
           setRevistas(response.data)
           break
         case "dvd":
-          response = await dvdsAPI.search(query)
+          response = await dvdsAPI.searchByTitle(searchTerm)
           setDvds(response.data)
           break
         case "artigo":
-          response = await artigosAPI.search(query)
+          response = await artigosAPI.searchByTitle(searchTerm)
           setArtigos(response.data)
           break
         case "livro":
-          response = await livrosAPI.search(query)
+          response = await livrosAPI.searchByTitle(searchTerm)
           setLivros(response.data)
           break
       }
@@ -168,17 +213,26 @@ export default function MidiasPage() {
       console.error("Error searching media:", error)
       toast({
         title: "Erro na busca",
-        description: error.response.data.detail,
+        description: "Não foi possível realizar a busca.",
         variant: "destructive",
       })
     } finally {
-      setLoading(false)
+      setIsSearching({ ...isSearching, [mediaType]: false })
     }
   }
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearchSubmit = (e: React.FormEvent, mediaType: MediaType) => {
     e.preventDefault()
-    searchMedia(searchTerm)
+    handleSearch(mediaType)
+  }
+
+  const handleClearSearch = (mediaType: MediaType) => {
+    setSearchTerms({ ...searchTerms, [mediaType]: "" })
+    restoreDefaultItems()
+  }
+
+  const updateSearchTerm = (mediaType: MediaType, value: string) => {
+    setSearchTerms({ ...searchTerms, [mediaType]: value })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -197,6 +251,7 @@ export default function MidiasPage() {
             data_publicacao: formData.data_publicacao || null,
           }
           response = await revistasAPI.create(revistaData)
+          setAllRevistas([...allRevistas, response.data])
           setRevistas([...revistas, response.data])
           break
         case "dvd":
@@ -208,6 +263,7 @@ export default function MidiasPage() {
             data_lancamento: formData.data_lancamento || null,
           }
           response = await dvdsAPI.create(dvdData)
+          setAllDvds([...allDvds, response.data])
           setDvds([...dvds, response.data])
           break
         case "artigo":
@@ -218,6 +274,7 @@ export default function MidiasPage() {
             data_publicacao: formData.data_publicacao || null,
           }
           response = await artigosAPI.create(artigoData)
+          setAllArtigos([...allArtigos, response.data])
           setArtigos([...artigos, response.data])
           break
         case "livro":
@@ -229,6 +286,7 @@ export default function MidiasPage() {
             numero_paginas: formData.numero_paginas || null,
           }
           response = await livrosAPI.create(livroData)
+          setAllLivros([...allLivros, response.data])
           setLivros([...livros, response.data])
           break
       }
@@ -244,7 +302,7 @@ export default function MidiasPage() {
       console.error("Error saving media:", error)
       toast({
         title: "Erro ao salvar mídia",
-        description: error.response.data.detail,
+        description: "Não foi possível salvar a mídia. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -257,18 +315,22 @@ export default function MidiasPage() {
       switch (type) {
         case "revista":
           await revistasAPI.delete(id)
+          setAllRevistas(allRevistas.filter((r) => r.id_revista !== id))
           setRevistas(revistas.filter((r) => r.id_revista !== id))
           break
         case "dvd":
           await dvdsAPI.delete(id)
+          setAllDvds(allDvds.filter((d) => d.id_dvd !== id))
           setDvds(dvds.filter((d) => d.id_dvd !== id))
           break
         case "artigo":
           await artigosAPI.delete(id)
+          setAllArtigos(allArtigos.filter((a) => a.id_artigo !== id))
           setArtigos(artigos.filter((a) => a.id_artigo !== id))
           break
         case "livro":
           await livrosAPI.delete(id)
+          setAllLivros(allLivros.filter((l) => l.id_livro !== id))
           setLivros(livros.filter((l) => l.id_livro !== id))
           break
       }
@@ -281,7 +343,7 @@ export default function MidiasPage() {
       console.error("Error deleting media:", error)
       toast({
         title: "Erro ao remover mídia",
-        description: error.response.data.detail ,
+        description: "Não foi possível remover a mídia. Tente novamente.",
         variant: "destructive",
       })
     }
@@ -533,71 +595,111 @@ export default function MidiasPage() {
 
   const renderMediaTable = (items: MediaItem[], type: MediaType) => {
     const Icon = tipoMidiaIcons[type]
+    const currentSearchTerm = searchTerms[type]
 
     return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>Título</TableHead>
-            <TableHead>Detalhes</TableHead>
-            <TableHead>Data</TableHead>
-            <TableHead className="text-right">Ações</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((item) => {
-            let id: number
-            let details = ""
-            let date = ""
+      <div className="space-y-4">
+        {/* Search Bar for each tab */}
+        <form onSubmit={(e) => handleSearchSubmit(e, type)} className="flex items-center space-x-2">
+          <Search className="w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder={`Buscar ${tipoMidiaLabels[type].toLowerCase()} por título...`}
+            value={currentSearchTerm}
+            onChange={(e) => updateSearchTerm(type, e.target.value)}
+            className="max-w-sm"
+            disabled={isSearching[type]}
+          />
+          <Button type="submit" variant="outline" size="sm" disabled={isSearching[type]}>
+            {isSearching[type] ? "Buscando..." : "Buscar"}
+          </Button>
+          {currentSearchTerm && (
+            <Button type="button" variant="outline" size="sm" onClick={() => handleClearSearch(type)}>
+              Limpar
+            </Button>
+          )}
+        </form>
 
-            if ("id_revista" in item) {
-              id = item.id_revista
-              details = item.editora || ""
-              date = item.data_publicacao || ""
-            } else if ("id_dvd" in item) {
-              id = item.id_dvd
-              details = item.distribuidora || ""
-              date = item.data_lancamento || ""
-            } else if ("id_artigo" in item) {
-              id = item.id_artigo
-              details = item.publicadora || ""
-              date = item.data_publicacao || ""
-            } else {
-              id = item.id_livro
-              details = item.editora || ""
-              date = item.data_publicacao || ""
-            }
+        {/* Results info */}
+        {currentSearchTerm && (
+          <div className="text-sm text-muted-foreground">
+            Resultados da busca por "{currentSearchTerm}" em {tipoMidiaLabels[type]}
+          </div>
+        )}
 
-            return (
-              <TableRow key={id}>
-                <TableCell className="font-medium">{id}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Badge className={tipoMidiaColors[type]}>
-                      <Icon className="w-3 h-3 mr-1" />
-                      {type}
-                    </Badge>
-                    {item.titulo}
-                  </div>
-                </TableCell>
-                <TableCell>{details}</TableCell>
-                <TableCell>{date ? new Date(date).toLocaleDateString("pt-BR") : "-"}</TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm">
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDelete(id, type)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>ID</TableHead>
+              <TableHead>Título</TableHead>
+              <TableHead>Detalhes</TableHead>
+              <TableHead>Data</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center">
+                  {currentSearchTerm
+                    ? `Nenhum ${type} encontrado com esse termo de busca.`
+                    : `Nenhum ${type} cadastrado.`}
                 </TableCell>
               </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+            ) : (
+              items.map((item) => {
+                let id: number
+                let details = ""
+                let date = ""
+
+                if ("id_revista" in item) {
+                  id = item.id_revista
+                  details = item.editora || ""
+                  date = item.data_publicacao || ""
+                } else if ("id_dvd" in item) {
+                  id = item.id_dvd
+                  details = item.distribuidora || ""
+                  date = item.data_lancamento || ""
+                } else if ("id_artigo" in item) {
+                  id = item.id_artigo
+                  details = item.publicadora || ""
+                  date = item.data_publicacao || ""
+                } else {
+                  id = item.id_livro
+                  details = item.editora || ""
+                  date = item.data_publicacao || ""
+                }
+
+                return (
+                  <TableRow key={id}>
+                    <TableCell className="font-medium">{id}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Badge className={tipoMidiaColors[type]}>
+                          <Icon className="w-3 h-3 mr-1" />
+                          {type}
+                        </Badge>
+                        {item.titulo}
+                      </div>
+                    </TableCell>
+                    <TableCell>{details}</TableCell>
+                    <TableCell>{date ? new Date(date).toLocaleDateString("pt-BR") : "-"}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm">
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDelete(id, type)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
     )
   }
 
@@ -634,7 +736,13 @@ export default function MidiasPage() {
   const handleTabChange = (value: string) => {
     setActiveTab(value as MediaType)
     setCurrentPage(1)
-    setSearchTerm("")
+    // Clear search terms when switching tabs
+    setSearchTerms({
+      revista: "",
+      dvd: "",
+      artigo: "",
+      livro: "",
+    })
   }
 
   if (loading) {
@@ -699,105 +807,50 @@ export default function MidiasPage() {
         </div>
       </div>
 
-      {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Revistas</CardTitle>
-            <Newspaper className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{revistas.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">DVDs</CardTitle>
-            <Disc className="h-4 w-4 text-purple-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{dvds.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Artigos</CardTitle>
-            <FileText className="h-4 w-4 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{artigos.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Livros</CardTitle>
-            <BookOpen className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{livros.length}</div>
-          </CardContent>
-        </Card>
-      </div>
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="revista" className="flex items-center gap-2">
+            <Newspaper className="w-4 h-4" />
+            Revistas
+          </TabsTrigger>
+          <TabsTrigger value="dvd" className="flex items-center gap-2">
+            <Disc className="w-4 h-4" />
+            DVDs
+          </TabsTrigger>
+          <TabsTrigger value="artigo" className="flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            Artigos
+          </TabsTrigger>
+          <TabsTrigger value="livro" className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4" />
+            Livros
+          </TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Acervo de Mídias</CardTitle>
-          <CardDescription>
-            Página {currentPage} de {totalPages} - {getCurrentItems().length} mídias na página atual
-          </CardDescription>
-          <form onSubmit={handleSearch} className="flex items-center space-x-2">
-            <Search className="w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar mídias..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="max-w-sm"
-            />
-            <Button type="submit" variant="outline" size="sm">
-              Buscar
-            </Button>
-            {searchTerm && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSearchTerm("")
-                  fetchMediaByType()
-                }}
-              >
-                Limpar
-              </Button>
-            )}
-          </form>
-        </CardHeader>
-        <CardContent>
-          <Tabs value={activeTab} onValueChange={handleTabChange}>
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="revista">Revistas</TabsTrigger>
-              <TabsTrigger value="dvd">DVDs</TabsTrigger>
-              <TabsTrigger value="artigo">Artigos</TabsTrigger>
-              <TabsTrigger value="livro">Livros</TabsTrigger>
-            </TabsList>
-            <TabsContent value="revista" className="mt-4">
-              {renderMediaTable(revistas, "revista")}
-            </TabsContent>
-            <TabsContent value="dvd" className="mt-4">
-              {renderMediaTable(dvds, "dvd")}
-            </TabsContent>
-            <TabsContent value="artigo" className="mt-4">
-              {renderMediaTable(artigos, "artigo")}
-            </TabsContent>
-            <TabsContent value="livro" className="mt-4">
-              {renderMediaTable(livros, "livro")}
-            </TabsContent>
-          </Tabs>
+        <TabsContent value="revista" className="space-y-4">
+          <Card>
+            <CardContent className="p-6">{renderMediaTable(revistas, "revista")}</CardContent>
+          </Card>
+        </TabsContent>
 
-          <div className="mt-4">
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
-          </div>
-        </CardContent>
-      </Card>
+        <TabsContent value="dvd" className="space-y-4">
+          <Card>
+            <CardContent className="p-6">{renderMediaTable(dvds, "dvd")}</CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="artigo" className="space-y-4">
+          <Card>
+            <CardContent className="p-6">{renderMediaTable(artigos, "artigo")}</CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="livro" className="space-y-4">
+          <Card>
+            <CardContent className="p-6">{renderMediaTable(livros, "livro")}</CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import List
+from typing import List, Optional
 from datetime import date
 from app.schemas.schemas import Emprestimo, EmprestimoCreate, EmprestimoCompleto, RelatorioEmprestimos
 from app.services.emprestimo_service import emprestimo_service
@@ -55,3 +55,13 @@ def get_emprestimos_vencidos(
 def get_relatorio_emprestimos():
     """Obter relatório resumido de empréstimos"""
     return emprestimo_service.get_relatorio_emprestimos()
+
+@router.get("/pesquisar/emprestimos", response_model=List[Emprestimo])
+def search_emprestimos(
+    query: Optional[str] = Query(None, description="Título do item a ser pesquisado")
+):
+
+    """Buscar itens do estoque a partir do ID do estoque ou da biblioteca"""
+    if not query:
+        raise HTTPException(status_code=400, detail="Título é obrigatório para busca")
+    return emprestimo_service.search_emprestimos(query)

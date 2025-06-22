@@ -25,11 +25,13 @@ import { bibliotecasAPI, type BibliotecaResponse, type BibliotecaCreate, type Bi
 
 export default function BibliotecasPage() {
   const [bibliotecas, setBibliotecas] = useState<BibliotecaResponse[]>([])
+  const [allBibliotecas, setAllBibliotecas] = useState<BibliotecaResponse[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingBiblioteca, setEditingBiblioteca] = useState<BibliotecaResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
   const [formData, setFormData] = useState<BibliotecaCreate>({
     nome: "",
     endereco: "",
@@ -44,12 +46,13 @@ export default function BibliotecasPage() {
     try {
       setLoading(true)
       const response = await bibliotecasAPI.getAll()
-      setBibliotecas(response.data.data) // Note: nested data structure
+      setAllBibliotecas(response.data.data) // Note: nested data structure
+      setBibliotecas(response.data.data)
     } catch (error) {
       console.error("Error fetching bibliotecas:", error)
       toast({
         title: "Erro ao carregar bibliotecas",
-        description: error.response.data.detail,
+        description: "Não foi possível carregar a lista de bibliotecas.",
         variant: "destructive",
       })
     } finally {
@@ -57,11 +60,38 @@ export default function BibliotecasPage() {
     }
   }
 
-  const filteredBibliotecas = bibliotecas.filter(
-    (biblioteca) =>
-      biblioteca.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      biblioteca.endereco.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      // If search is empty, show default items
+      setBibliotecas(allBibliotecas)
+      return
+    }
+
+    try {
+      setIsSearching(true)
+      const response = await bibliotecasAPI.search(searchTerm)
+      setBibliotecas(response.data)
+    } catch (error) {
+      console.error("Error searching bibliotecas:", error)
+      toast({
+        title: "Erro na busca",
+        description: "Não foi possível realizar a busca de bibliotecas.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    handleSearch()
+  }
+
+  const handleClearSearch = () => {
+    setSearchTerm("")
+    setBibliotecas(allBibliotecas)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,8 +104,8 @@ export default function BibliotecasPage() {
           endereco: formData.endereco || null,
         }
         const response = await bibliotecasAPI.update(editingBiblioteca.id_biblioteca, updateData)
-        setBibliotecas(
-          bibliotecas.map((b) => (b.id_biblioteca === editingBiblioteca.id_biblioteca ? response.data : b)),
+        setAllBibliotecas(
+          allBibliotecas.map((b) => (b.id_biblioteca === editingBiblioteca.id_biblioteca ? response.data : b)),
         )
         toast({
           title: "Biblioteca atualizada",
@@ -87,7 +117,7 @@ export default function BibliotecasPage() {
           endereco: formData.endereco || null,
         }
         const response = await bibliotecasAPI.create(createData)
-        setBibliotecas([...bibliotecas, response.data])
+        setAllBibliotecas([...allBibliotecas, response.data])
         toast({
           title: "Biblioteca criada",
           description: "Nova biblioteca foi cadastrada com sucesso.",
@@ -101,7 +131,7 @@ export default function BibliotecasPage() {
       console.error("Error saving biblioteca:", error)
       toast({
         title: "Erro ao salvar biblioteca",
-        description: error.response.data.detail,
+        description: "Não foi possível salvar a biblioteca. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -121,7 +151,7 @@ export default function BibliotecasPage() {
   const handleDelete = async (id: number) => {
     try {
       await bibliotecasAPI.delete(id)
-      setBibliotecas(bibliotecas.filter((b) => b.id_biblioteca !== id))
+      setAllBibliotecas(allBibliotecas.filter((b) => b.id_biblioteca !== id))
       toast({
         title: "Biblioteca removida",
         description: "A biblioteca foi removida do sistema.",
@@ -130,7 +160,7 @@ export default function BibliotecasPage() {
       console.error("Error deleting biblioteca:", error)
       toast({
         title: "Erro ao remover biblioteca",
-        description: error.response.data.detail,
+        description: "Não foi possível remover a biblioteca. Tente novamente.",
         variant: "destructive",
       })
     }
@@ -227,7 +257,7 @@ export default function BibliotecasPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {filteredBibliotecas.map((biblioteca) => (
+        {bibliotecas.map((biblioteca) => (
           <Card key={biblioteca.id_biblioteca} className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div className="flex items-center gap-2">
@@ -257,15 +287,24 @@ export default function BibliotecasPage() {
       <Card>
         <CardHeader>
           <CardTitle>Buscar Bibliotecas</CardTitle>
-          <div className="flex items-center space-x-2">
+          <form onSubmit={handleSearchSubmit} className="flex items-center space-x-2">
             <Search className="w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Buscar por nome ou endereço..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
+              disabled={isSearching}
             />
-          </div>
+            <Button type="submit" variant="outline" size="sm" disabled={isSearching}>
+              {isSearching ? "Buscando..." : "Buscar"}
+            </Button>
+            {searchTerm && (
+              <Button type="button" variant="outline" size="sm" onClick={handleClearSearch}>
+                Limpar
+              </Button>
+            )}
+          </form>
         </CardHeader>
         <CardContent>
           <Table>
@@ -278,23 +317,33 @@ export default function BibliotecasPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredBibliotecas.map((biblioteca) => (
-                <TableRow key={biblioteca.id_biblioteca}>
-                  <TableCell className="font-medium">{biblioteca.id_biblioteca}</TableCell>
-                  <TableCell>{biblioteca.nome}</TableCell>
-                  <TableCell>{biblioteca.endereco}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(biblioteca)}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDelete(biblioteca.id_biblioteca)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+              {bibliotecas.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center">
+                    {searchTerm
+                      ? "Nenhuma biblioteca encontrada com esse termo de busca."
+                      : "Nenhuma biblioteca cadastrada."}
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                bibliotecas.map((biblioteca) => (
+                  <TableRow key={biblioteca.id_biblioteca}>
+                    <TableCell className="font-medium">{biblioteca.id_biblioteca}</TableCell>
+                    <TableCell>{biblioteca.nome}</TableCell>
+                    <TableCell>{biblioteca.endereco}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleEdit(biblioteca)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDelete(biblioteca.id_biblioteca)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

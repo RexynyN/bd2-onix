@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api import usuarios, emprestimos, estoque
+from app.api import usuarios, emprestimos, estoque, livros
 from app.routers import revistas, dvds, artigos, biblioteca, autor
 import logging
 
@@ -50,6 +50,7 @@ app.include_router(
 
 # Incluir os roteadores no main
 app.include_router(revistas.router, prefix="/api/v1/revistas", tags=["revistas"])
+app.include_router(livros.router, prefix="/api/v1/livros", tags=["revistas"])
 app.include_router(dvds.router, prefix="/api/v1/dvds", tags=["dvds"])
 app.include_router(artigos.router, prefix="/api/v1/artigos", tags=["artigos"])
 app.include_router(biblioteca.router, prefix="/api/v1/bibliotecas", tags=["bibliotecas"])
