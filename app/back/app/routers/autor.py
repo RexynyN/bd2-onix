@@ -21,13 +21,12 @@ async def create_autor(autor: AutorCreate):
     """Create a new author"""
     try:
         author_data = autor.model_dump(exclude_unset=True)
-        author_id = autor_service.create(author_data)
+        created_author = autor_service.create_autor(AutorCreate(**author_data))
         
-        if not author_id:
+        if not created_author:
             raise HTTPException(status_code=500, detail="Failed to create author")
-        
-        created_author = autor_service.get_by_id(author_id)
-        return AutorResponse(**created_author)
+
+        return created_author
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -54,7 +53,7 @@ async def list_autores(
 @router.get("/{author_id}", response_model=AutorResponse)
 async def get_autor(author_id: int):
     """Get author by ID"""
-    author = autor_service.get_by_id(author_id)
+    author = autor_service.get_autor(author_id)
     if not author:
         raise HTTPException(status_code=404, detail="Author not found")
     return AutorResponse(**author)
@@ -62,20 +61,16 @@ async def get_autor(author_id: int):
 @router.put("/{author_id}", response_model=AutorResponse)
 async def update_autor(author_id: int, autor: AutorUpdate):
     """Update author"""
-    if not autor_service.exists(author_id):
-        raise HTTPException(status_code=404, detail="Author not found")
-    
     try:
         author_data = autor.dict(exclude_unset=True, exclude_none=True)
         if not author_data:
             raise HTTPException(status_code=400, detail="No data provided for update")
         
-        success = autor_service.update(author_id, author_data)
-        if not success:
+        author = autor_service.update_autor(author_id, AutorUpdate(**author_data))
+        if not author:
             raise HTTPException(status_code=500, detail="Failed to update author")
         
-        updated_author = autor_service.get_by_id(author_id)
-        return AutorResponse(**updated_author)
+        return author
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

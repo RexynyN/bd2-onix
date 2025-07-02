@@ -17,11 +17,12 @@ async def create_biblioteca(biblioteca: BibliotecaCreate):
     """Create a new library"""
     try:
         library_data = biblioteca.dict(exclude_unset=True)
-        library = biblioteca_service.create_biblioteca(library_data)
-        
+        library = biblioteca_service.create_biblioteca(BibliotecaCreate(**library_data))
+
         if not library:
             raise HTTPException(status_code=500, detail="Failed to create library")
         return library
+    
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -56,15 +57,12 @@ async def get_biblioteca(library_id: int):
 @router.put("/{library_id}", response_model=BibliotecaResponse)
 async def update_biblioteca(library_id: int, biblioteca: BibliotecaUpdate):
     """Update library"""
-    if not biblioteca_service.exists(library_id):
-        raise HTTPException(status_code=404, detail="Library not found")
-    
     try:
         library_data = biblioteca.dict(exclude_unset=True, exclude_none=True)
         if not library_data:
             raise HTTPException(status_code=400, detail="No data provided for update")
         
-        library = biblioteca_service.update_biblioteca(library_id, library_data)
+        library = biblioteca_service.update_biblioteca(library_id, BibliotecaUpdate(**library_data))
         if not library:
             raise HTTPException(status_code=500, detail="Failed to update library")
         
@@ -77,9 +75,6 @@ async def update_biblioteca(library_id: int, biblioteca: BibliotecaUpdate):
 @router.delete("/{library_id}", response_model=BaseResponse)
 async def delete_biblioteca(library_id: int):
     """Delete library"""
-    if not biblioteca_service.exists(library_id):
-        raise HTTPException(status_code=404, detail="Library not found")
-    
     try:
         success = biblioteca_service.delete_biblioteca(library_id)
         if not success:
